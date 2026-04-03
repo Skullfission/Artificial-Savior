@@ -1,0 +1,13 @@
+{
+  "player": {
+    "image": "assets/player.png",
+    "frameW": 48,
+    "frameH": 48,
+    "animations": {
+      "idle": {
+        "row": 0,
+        "frames": 1
+      }
+    }
+  }
+}
