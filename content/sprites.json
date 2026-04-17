@@ -1,13 +1,9 @@
 {
-  "player": {
-    "image": "assets/player.png",
-    "frameW": 48,
-    "frameH": 48,
-    "animations": {
-      "idle": {
-        "row": 0,
-        "frames": 1
-      }
-    }
-  }
+  "player":       { "image": "Ship art/MK 1 ship.png",      "size": 64 },
+  "playerMk2":    { "image": "Ship art/MK 2 ship.png",      "size": 72 },
+  "enemyDragon":  { "image": "Ship art/Dragon Ship.png",    "size": 80 },
+  "weaponSmall":  { "image": "Ship art/MK 2 small gun.png", "size": 16 },
+  "weaponLarge":  { "image": "Ship art/MK 2 large gun.png", "size": 22 },
+  "weaponLaser":  { "image": "Ship art/MK 2 Laser.png",     "size": 28 },
+  "weaponMissle": { "image": "Ship art/MK 2 Missle.png",    "size": 22 }
 }

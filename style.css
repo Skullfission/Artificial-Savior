@@ -1,1 +1,5 @@
-body{margin:0;background:#0b1224;color:white;font-family:sans-serif}.wrap{display:grid;place-items:center;min-height:100vh}canvas{background:#111;border-radius:12px}
+body{margin:0;background:#0b1224;color:#e8ecf7;font-family:system-ui,sans-serif}
+.wrap{display:grid;place-items:center;min-height:100vh;gap:8px}
+h1{margin:12px 0 0;font-weight:600;letter-spacing:1px}
+canvas{background:#000;border-radius:12px;box-shadow:0 0 40px #1a2a6c88;max-width:100%;image-rendering:auto}
+.hint{opacity:.7;font-size:14px;margin:0 0 16px}
