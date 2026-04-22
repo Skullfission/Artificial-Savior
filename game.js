@@ -997,9 +997,17 @@ function renderTitle() {
   ctx.fillText("Artificial Savior", tx, ty + bob);
   ctx.restore();
 
+  // Credit line.
+  ctx.save();
+  ctx.shadowColor = "#5fb8ff"; ctx.shadowBlur = 12;
+  ctx.fillStyle = "#cfe3ff";
+  ctx.font = "italic 22px system-ui";
+  ctx.fillText("Created by Bruce Beerman", tx, ty + bob + 64);
+  ctx.restore();
+
   // Subtitle underline.
   ctx.strokeStyle = "#5fb8ff88"; ctx.lineWidth = 2;
-  ctx.beginPath(); ctx.moveTo(tx - 260, ty + 56); ctx.lineTo(tx + 260, ty + 56); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(tx - 260, ty + 94); ctx.lineTo(tx + 260, ty + 94); ctx.stroke();
 
   // Tagline.
   ctx.fillStyle = "#cfd6ee"; ctx.font = "18px system-ui";
