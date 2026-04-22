@@ -991,10 +991,10 @@ function renderTitle() {
   ctx.shadowColor = "#5fb8ff"; ctx.shadowBlur = 40;
   ctx.fillStyle = "#9fd1ff";
   ctx.font = "bold 92px system-ui";
-  ctx.fillText("Art-ificial Savior", tx, ty + bob);
+  ctx.fillText("Artificial Savior", tx, ty + bob);
   ctx.shadowBlur = 14;
   ctx.fillStyle = "#ffffff";
-  ctx.fillText("Art-ificial Savior", tx, ty + bob);
+  ctx.fillText("Artificial Savior", tx, ty + bob);
   ctx.restore();
 
   // Credit line.
