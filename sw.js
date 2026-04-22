@@ -1,7 +1,7 @@
 // Artificial Savior — offline service worker.
 // Cache-first strategy: all assets are pre-cached on install so the game plays fully offline after first visit.
 
-const CACHE = "artificial-savior-v2";
+const CACHE = "artificial-savior-v3";
 
 const ASSETS = [
   "./",
@@ -9,6 +9,7 @@ const ASSETS = [
   "./style.css",
   "./game.js",
   "./manifest.webmanifest",
+  "./privacy.html",
   "./content/level1.json",
   "./content/sprites.json",
   "./audio/Artificial Savior.mp3",
@@ -18,7 +19,18 @@ const ASSETS = [
   "./Ship art/MK 2 small gun.png",
   "./Ship art/MK 2 large gun.png",
   "./Ship art/MK 2 Laser.png",
-  "./Ship art/MK 2 Missle.png"
+  "./Ship art/MK 2 Missle.png",
+  "./icons/icon-48.png",
+  "./icons/icon-72.png",
+  "./icons/icon-96.png",
+  "./icons/icon-128.png",
+  "./icons/icon-144.png",
+  "./icons/icon-192.png",
+  "./icons/icon-256.png",
+  "./icons/icon-384.png",
+  "./icons/icon-512.png",
+  "./icons/icon-maskable-192.png",
+  "./icons/icon-maskable-512.png"
 ];
 
 self.addEventListener("install", (e) => {
