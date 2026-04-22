@@ -1,5 +1,25 @@
 body{margin:0;background:#0b1224;color:#e8ecf7;font-family:system-ui,sans-serif}
 .wrap{display:grid;place-items:center;min-height:100vh;gap:8px}
 h1{margin:12px 0 0;font-weight:600;letter-spacing:1px}
-canvas{background:#000;border-radius:12px;box-shadow:0 0 40px #1a2a6c88;max-width:100%;image-rendering:auto}
+canvas{background:#000;border-radius:12px;box-shadow:0 0 40px #1a2a6c88;max-width:100%;max-height:calc(100vh - 110px);image-rendering:auto}
 .hint{opacity:.7;font-size:14px;margin:0 0 16px}
+
+#touch{display:none;position:fixed;inset:0;pointer-events:none;z-index:10;font-family:inherit}
+.tc-btn{pointer-events:auto;touch-action:none;background:rgba(20,30,60,.55);color:#cfe3ff;border:2px solid #5fb8ff77;border-radius:14px;font:600 16px system-ui;user-select:none;-webkit-user-select:none;-webkit-tap-highlight-color:transparent;backdrop-filter:blur(4px)}
+.tc-btn:active{background:#5fb8ff55;border-color:#9fd1ff}
+#tc-stick{position:absolute;left:20px;bottom:30px;width:150px;height:150px;border-radius:50%;background:rgba(20,30,60,.45);border:2px solid #5fb8ff55;pointer-events:auto;touch-action:none}
+#tc-knob{position:absolute;left:50%;top:50%;width:64px;height:64px;margin:-32px 0 0 -32px;border-radius:50%;background:#5fb8ffcc;box-shadow:0 0 18px #5fb8ff;transition:transform 60ms ease-out}
+#tc-fire{position:absolute;right:20px;bottom:30px;width:120px;height:120px;border-radius:50%;font-size:20px;color:#ffdcdc;border-color:#ff6b6baa;background:rgba(80,20,30,.45)}
+#tc-fire:active{background:#ff6b6b55}
+#tc-weapons{position:absolute;right:20px;bottom:170px;display:flex;gap:6px;pointer-events:none}
+#tc-weapons .tc-btn{width:46px;height:46px;font-size:16px;pointer-events:auto}
+#tc-action{position:absolute;right:20px;top:20px;min-width:70px;height:48px;font-size:16px;padding:0 14px}
+
+@media (pointer:coarse){
+  body{overflow:hidden}
+  .wrap{min-height:100vh;padding:4px;gap:2px}
+  h1{font-size:18px;margin:4px 0}
+  .hint{display:none}
+  canvas{max-height:calc(100vh - 40px)}
+  #touch{display:block}
+}

@@ -1395,3 +1395,102 @@ async function main() {
 }
 
 main();
+
+// ---------- Mobile / touch controls ----------
+(function setupTouchControls() {
+  const root = document.getElementById("touch");
+  if (!root) return;
+  const stick = document.getElementById("tc-stick");
+  const knob = document.getElementById("tc-knob");
+  const fire = document.getElementById("tc-fire");
+  const action = document.getElementById("tc-action");
+  const weaponBtns = document.querySelectorAll("#tc-weapons .tc-btn");
+
+  const DIRS = ["arrowleft", "arrowright", "arrowup", "arrowdown"];
+
+  let stickId = null;
+  function resetStick() {
+    DIRS.forEach(d => keys.delete(d));
+    knob.style.transform = "";
+  }
+  function updateStick(cx, cy) {
+    const r = stick.getBoundingClientRect();
+    const dx = cx - (r.left + r.width / 2);
+    const dy = cy - (r.top + r.height / 2);
+    const max = r.width / 2 - 18;
+    const dist = Math.hypot(dx, dy) || 1;
+    const cl = Math.min(dist, max);
+    const ux = dx / dist * cl, uy = dy / dist * cl;
+    knob.style.transform = `translate(${ux}px,${uy}px)`;
+    const t = max * 0.25;
+    DIRS.forEach(d => keys.delete(d));
+    if (Math.abs(dx) > t) keys.add(dx > 0 ? "arrowright" : "arrowleft");
+    if (Math.abs(dy) > t) keys.add(dy > 0 ? "arrowdown" : "arrowup");
+  }
+  stick.addEventListener("pointerdown", e => {
+    stickId = e.pointerId;
+    stick.setPointerCapture(stickId);
+    audio.unlockAndPlay();
+    updateStick(e.clientX, e.clientY);
+    e.preventDefault();
+  });
+  stick.addEventListener("pointermove", e => {
+    if (e.pointerId === stickId) updateStick(e.clientX, e.clientY);
+  });
+  function endStick(e) {
+    if (e.pointerId === stickId) { stickId = null; resetStick(); }
+  }
+  stick.addEventListener("pointerup", endStick);
+  stick.addEventListener("pointercancel", endStick);
+
+  // Fire (hold to auto-fire)
+  fire.addEventListener("pointerdown", e => {
+    fire.setPointerCapture(e.pointerId);
+    keys.add(" ");
+    audio.unlockAndPlay();
+    e.preventDefault();
+  });
+  const endFire = () => keys.delete(" ");
+  fire.addEventListener("pointerup", endFire);
+  fire.addEventListener("pointercancel", endFire);
+  fire.addEventListener("pointerleave", endFire);
+
+  // Weapon quick-tap buttons
+  weaponBtns.forEach(btn => {
+    btn.addEventListener("pointerdown", e => {
+      const k = btn.dataset.k;
+      keys.add(k);
+      setTimeout(() => keys.delete(k), 80);
+      audio.unlockAndPlay();
+      e.preventDefault();
+    });
+  });
+
+  // Context-aware action button: Start / Pause / Resume / Retry.
+  function actionLabel() {
+    if (state.phase === "title") return "START";
+    if (state.gameOver && (!state.entry || state.entry.submitted)) return "RETRY";
+    if (state.entry && !state.entry.submitted) return "OK";
+    return state.paused ? "▶" : "II";
+  }
+  action.addEventListener("pointerdown", e => {
+    audio.unlockAndPlay();
+    if (state.phase === "title") {
+      state.titleElapsed = 1e9;
+    } else if (state.entry && !state.entry.submitted) {
+      handleEntryKey("Enter");
+    } else if (state.gameOver) {
+      keys.add("r");
+      setTimeout(() => keys.delete("r"), 80);
+    } else {
+      togglePause();
+    }
+    e.preventDefault();
+  });
+  setInterval(() => { action.textContent = actionLabel(); }, 200);
+
+  // Tap on canvas also skips the title.
+  canvas.addEventListener("pointerdown", () => {
+    if (state.phase === "title") state.titleElapsed = 1e9;
+  });
+})();
