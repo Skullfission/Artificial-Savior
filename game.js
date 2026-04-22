@@ -16,7 +16,7 @@ const WEAPONS = {
 };
 const WEAPON_ORDER = ["small", "large", "laser", "missle"];
 
-const UPGRADE_INTERVAL = 2500;
+const UPGRADE_INTERVAL = 3000;
 const BOSS_SCORE_TRIGGER = 10000;
 const BOSS_HP = 5000;
 const BOSS_REWARD = 5000;
@@ -48,13 +48,66 @@ async function loadSprites() {
 const keys = new Set();
 addEventListener("keydown", e => {
   const k = e.key.toLowerCase();
+
+  // Initials entry intercepts keystrokes so gameplay/music keys don't interfere.
+  if (state.entry && !state.entry.submitted) {
+    e.preventDefault();
+    handleEntryKey(e.key);
+    return;
+  }
+
+  if (e.repeat) return void keys.add(k);
   keys.add(k);
   if ([" ", "arrowup", "arrowdown", "arrowleft", "arrowright"].includes(k)) e.preventDefault();
   if (k === "m") audio.toggleMute();
+  if (k === "p") togglePause();
   audio.unlockAndPlay();
 });
 addEventListener("keyup", e => keys.delete(e.key.toLowerCase()));
 addEventListener("pointerdown", () => audio.unlockAndPlay());
+
+function togglePause() {
+  // Pausing is only meaningful during active gameplay.
+  if (state.phase !== "play" || state.gameOver) return;
+  state.paused = !state.paused;
+  if (state.paused) audio.pauseMusic();
+  else audio.resumeMusic();
+}
+
+function handleEntryKey(key) {
+  const en = state.entry;
+  if (!en || en.submitted) return;
+  if (key === "Enter") {
+    en.submitted = true;
+    submitHiscore(en.letters.join(""), en.score);
+    // Clear held-key state so the auto-restart doesn't trigger from an 'r' held before entry.
+    keys.clear();
+    return;
+  }
+  if (key === "Backspace") {
+    if (en.pos > 0) en.pos -= 1;
+    en.letters[en.pos] = "A";
+    return;
+  }
+  if (key === "ArrowLeft") { if (en.pos > 0) en.pos -= 1; return; }
+  if (key === "ArrowRight") { if (en.pos < 2) en.pos += 1; return; }
+  if (key === "ArrowUp" || key === "ArrowDown") {
+    const dir = key === "ArrowUp" ? 1 : -1;
+    const cur = en.letters[en.pos];
+    const idx = cur >= "A" && cur <= "Z" ? cur.charCodeAt(0) - 65 : 0;
+    const next = (idx + dir + 26) % 26;
+    en.letters[en.pos] = String.fromCharCode(65 + next);
+    return;
+  }
+  // Typed letter/number fills current slot and advances.
+  if (key.length === 1) {
+    const ch = key.toUpperCase();
+    if (/[A-Z0-9]/.test(ch)) {
+      en.letters[en.pos] = ch;
+      if (en.pos < 2) en.pos += 1;
+    }
+  }
+}
 
 // ---------- Audio ----------
 
@@ -224,9 +277,49 @@ const audio = (() => {
 
   const SFX = { small: sfxSmall, large: sfxLarge, laser: sfxLaser, missle: sfxMissle, explosion: sfxExplosion, enemyShot: sfxEnemyShot, enemyDie: sfxEnemyDie };
 
+  // Analyser hookup for music-reactive visuals.
+  let source = null;
+  let analyser = null;
+  let freqData = null;
+  const energy = { bass: 0, mid: 0, treble: 0, level: 0 };
+  function ensureAnalyser() {
+    const ac = ensureCtx();
+    if (!ac || source) return;
+    try {
+      source = ac.createMediaElementSource(music);
+      analyser = ac.createAnalyser();
+      analyser.fftSize = 512;
+      analyser.smoothingTimeConstant = 0.82;
+      freqData = new Uint8Array(analyser.frequencyBinCount);
+      // Route music through the analyser so we can read it while it still plays.
+      source.connect(analyser);
+      analyser.connect(ac.destination);
+    } catch (e) {
+      source = null; analyser = null; freqData = null;
+    }
+  }
+  function sampleEnergy() {
+    if (!analyser || !freqData) return energy;
+    analyser.getByteFrequencyData(freqData);
+    const n = freqData.length;
+    // Split into bass / mid / treble by frequency-bin thirds (roughly 0-1.4k, 1.4k-4.2k, 4.2k+).
+    const b1 = Math.floor(n * 0.06), b2 = Math.floor(n * 0.22), b3 = Math.floor(n * 0.55);
+    let bs = 0, md = 0, tr = 0, total = 0;
+    for (let i = 0; i < b1; i++) bs += freqData[i];
+    for (let i = b1; i < b2; i++) md += freqData[i];
+    for (let i = b2; i < b3; i++) tr += freqData[i];
+    for (let i = 0; i < n; i++) total += freqData[i];
+    energy.bass   = (bs / Math.max(1, b1))       / 255;
+    energy.mid    = (md / Math.max(1, b2 - b1))  / 255;
+    energy.treble = (tr / Math.max(1, b3 - b2))  / 255;
+    energy.level  = total / (n * 255);
+    return energy;
+  }
+
   return {
     unlockAndPlay() {
       ensureCtx();
+      ensureAnalyser();
       if (!available || muted || started) return;
       const p = music.play();
       if (p && typeof p.then === "function") {
@@ -240,6 +333,12 @@ const audio = (() => {
       if (muted) { music.pause(); }
       else { started = false; this.unlockAndPlay(); }
     },
+    pauseMusic() { if (!muted && started) music.pause(); },
+    resumeMusic() {
+      if (muted) return;
+      const p = music.play();
+      if (p && typeof p.catch === "function") p.catch(() => {});
+    },
     playSfx(kind) {
       if (muted) return;
       const ac = ensureCtx();
@@ -247,6 +346,7 @@ const audio = (() => {
       const fn = SFX[kind];
       if (fn) fn(ac);
     },
+    getEnergy() { return sampleEnergy(); },
     get muted() { return muted; },
     get available() { return available; },
     get started() { return started; }
@@ -319,10 +419,47 @@ const state = {
   bossTriggered: false,
   bossDefeated: false,
   phase: "title",
-  titleElapsed: 0
+  titleElapsed: 0,
+  paused: false,
+  hiscores: [],
+  entry: null
 };
 
 const TITLE_DURATION = 20;
+const HISCORE_KEY = "artificialSaviorHiscores";
+const HISCORE_MAX = 10;
+
+function loadHiscores() {
+  try {
+    const raw = localStorage.getItem(HISCORE_KEY);
+    if (!raw) return [];
+    const arr = JSON.parse(raw);
+    if (!Array.isArray(arr)) return [];
+    return arr
+      .filter(r => r && typeof r.initials === "string" && typeof r.score === "number")
+      .map(r => ({ initials: r.initials.slice(0, 3).toUpperCase(), score: r.score | 0 }))
+      .sort((a, b) => b.score - a.score)
+      .slice(0, HISCORE_MAX);
+  } catch (e) { return []; }
+}
+
+function saveHiscores(list) {
+  try { localStorage.setItem(HISCORE_KEY, JSON.stringify(list)); } catch (e) { /* private mode etc. */ }
+}
+
+function qualifiesForHiscore(score) {
+  if (score <= 0) return false;
+  if (state.hiscores.length < HISCORE_MAX) return true;
+  return score > state.hiscores[state.hiscores.length - 1].score;
+}
+
+function submitHiscore(initials, score) {
+  const clean = (initials || "").toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 3).padEnd(3, "A");
+  state.hiscores.push({ initials: clean, score });
+  state.hiscores.sort((a, b) => b.score - a.score);
+  state.hiscores = state.hiscores.slice(0, HISCORE_MAX);
+  saveHiscores(state.hiscores);
+}
 
 function initStars() {
   state.stars = [];
@@ -345,6 +482,7 @@ function reset() {
   state.boss = null;
   state.bossTriggered = false;
   state.bossDefeated = false;
+  state.entry = null;
 }
 
 function spawnBoss() {
@@ -404,6 +542,11 @@ function killPlayer(p) {
   burst(p.x, p.y, "#ffffff", 40);
   burst(p.x, p.y, "#9fd1ff", 24);
   audio.playSfx("explosion");
+
+  // Start initials entry if the score qualifies for the leaderboard.
+  if (qualifiesForHiscore(state.score)) {
+    state.entry = { letters: ["A", "A", "A"], pos: 0, submitted: false, score: state.score };
+  }
 }
 
 function bossBurst(e) {
@@ -572,7 +715,7 @@ function update(dt) {
   }
 
   if (state.gameOver) {
-    if (keys.has("r")) reset();
+    if (keys.has("r") && (!state.entry || state.entry.submitted)) reset();
     return;
   }
 
@@ -882,26 +1025,105 @@ function renderTitle() {
 
   // Controls reminder.
   ctx.fillStyle = "#8d95ad"; ctx.font = "13px system-ui";
-  ctx.fillText("WASD / Arrows to move   ·   Space to fire   ·   1-4 weapons   ·   M to mute", tx, H - 46);
+  ctx.fillText("WASD / Arrows to move   ·   Space to fire   ·   1-4 weapons   ·   P pause   ·   M mute", tx, H - 46);
+
+  // High-score panel on the right.
+  if (state.hiscores && state.hiscores.length > 0) {
+    const panelW = 230, panelH = 210;
+    const px = W - panelW - 24, py = (H - panelH) / 2;
+    ctx.fillStyle = "#0b1224cc"; ctx.fillRect(px, py, panelW, panelH);
+    ctx.strokeStyle = "#ffffff22"; ctx.strokeRect(px, py, panelW, panelH);
+    ctx.textAlign = "center"; ctx.textBaseline = "alphabetic";
+    ctx.fillStyle = "#9fd1ff"; ctx.font = "bold 16px system-ui";
+    ctx.fillText("HIGH SCORES", px + panelW / 2, py + 24);
+    ctx.font = "13px ui-monospace, Menlo, Consolas, monospace";
+    ctx.textAlign = "left";
+    const rows = state.hiscores.slice(0, HISCORE_MAX);
+    for (let i = 0; i < rows.length; i++) {
+      const r = rows[i];
+      const ry = py + 48 + i * 16;
+      ctx.fillStyle = i === 0 ? "#ffd27a" : "#cfd6ee";
+      ctx.fillText(`${String(i + 1).padStart(2, " ")}. ${r.initials}`, px + 20, ry);
+      ctx.textAlign = "right";
+      ctx.fillText(String(r.score), px + panelW - 20, ry);
+      ctx.textAlign = "left";
+    }
+  }
 
   ctx.textBaseline = "alphabetic";
 }
 
-function render() {
+function renderBackground() {
+  // Base black.
   ctx.fillStyle = "#000";
   ctx.fillRect(0, 0, W, H);
 
-  // Nebula gradient
-  const g = ctx.createRadialGradient(W * 0.7, H * 0.4, 20, W * 0.7, H * 0.4, W);
-  g.addColorStop(0, "#1a2a6c33");
-  g.addColorStop(1, "#00000000");
-  ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
+  // Sample music energy (bass/mid/treble/level). Falls back to zeros before music starts.
+  const e = audio.getEnergy ? audio.getEnergy() : { bass: 0, mid: 0, treble: 0, level: 0 };
+  const t = state.t;
 
-  // Stars
-  for (const s of state.stars) {
-    ctx.fillStyle = `rgba(255,255,255,${0.3 + s.z * 0.3})`;
-    ctx.fillRect(s.x, s.y, s.z, s.z);
+  // Base hue drifts slowly; bass pushes it warmer, treble nudges it cooler.
+  const baseHue = (220 + t * 6 + e.bass * 60 - e.treble * 30) % 360;
+
+  // Two morphing nebula lobes — positions drift sinusoidally, radii pulse with bass/mid.
+  const lobes = [
+    {
+      x: W * (0.3 + Math.sin(t * 0.17) * 0.08),
+      y: H * (0.45 + Math.cos(t * 0.21) * 0.12),
+      r: W * (0.45 + e.bass * 0.35),
+      hue: baseHue,
+      a: 0.22 + e.bass * 0.30
+    },
+    {
+      x: W * (0.72 + Math.cos(t * 0.13) * 0.09),
+      y: H * (0.55 + Math.sin(t * 0.19) * 0.10),
+      r: W * (0.40 + e.mid * 0.35),
+      hue: (baseHue + 90) % 360,
+      a: 0.18 + e.mid * 0.28
+    }
+  ];
+  ctx.save();
+  ctx.globalCompositeOperation = "lighter";
+  for (const lo of lobes) {
+    const g = ctx.createRadialGradient(lo.x, lo.y, 20, lo.x, lo.y, lo.r);
+    g.addColorStop(0, `hsla(${lo.hue}, 90%, 60%, ${lo.a})`);
+    g.addColorStop(0.5, `hsla(${lo.hue}, 80%, 40%, ${lo.a * 0.55})`);
+    g.addColorStop(1, "hsla(0, 0%, 0%, 0)");
+    ctx.fillStyle = g;
+    ctx.fillRect(0, 0, W, H);
   }
+
+  // Horizon accent band that brightens with overall level.
+  const band = ctx.createLinearGradient(0, H * 0.25, 0, H * 0.85);
+  band.addColorStop(0, "hsla(0,0%,0%,0)");
+  band.addColorStop(0.5, `hsla(${(baseHue + 40) % 360}, 85%, ${30 + e.level * 35}%, ${0.10 + e.level * 0.35})`);
+  band.addColorStop(1, "hsla(0,0%,0%,0)");
+  ctx.fillStyle = band;
+  ctx.fillRect(0, 0, W, H);
+  ctx.restore();
+
+  // Treble-driven sparkles in the far-field stars.
+  const sparkle = e.treble;
+  for (const s of state.stars) {
+    const bright = 0.3 + s.z * 0.3 + sparkle * s.z * 0.6;
+    const size = s.z * (1 + sparkle * 0.6);
+    ctx.fillStyle = `rgba(255,255,255,${Math.min(1, bright)})`;
+    ctx.fillRect(s.x, s.y, size, size);
+  }
+
+  // Low-frequency pulse halo around the action.
+  if (e.bass > 0.15) {
+    const r0 = Math.max(W, H) * 0.25;
+    const pg = ctx.createRadialGradient(W / 2, H / 2, r0, W / 2, H / 2, Math.max(W, H) * 0.75);
+    pg.addColorStop(0, `hsla(${baseHue}, 85%, 60%, ${e.bass * 0.08})`);
+    pg.addColorStop(1, "hsla(0,0%,0%,0)");
+    ctx.fillStyle = pg;
+    ctx.fillRect(0, 0, W, H);
+  }
+}
+
+function render() {
+  renderBackground();
 
   if (!state.loaded) {
     ctx.fillStyle = "#fff"; ctx.font = "20px system-ui";
@@ -1058,10 +1280,84 @@ function render() {
   }
 
   if (state.gameOver) {
+    ctx.fillStyle = "#000b"; ctx.fillRect(0, 0, W, H);
+    ctx.textAlign = "center"; ctx.textBaseline = "middle";
+    ctx.fillStyle = "#fff";
+    ctx.font = "48px system-ui"; ctx.fillText("GAME OVER", W / 2, 110);
+    ctx.font = "20px system-ui"; ctx.fillStyle = "#cfd6ee";
+    ctx.fillText(`Score: ${state.score}`, W / 2, 150);
+
+    if (state.entry && !state.entry.submitted) {
+      const en = state.entry;
+      ctx.fillStyle = "#ffd27a"; ctx.font = "bold 22px system-ui";
+      ctx.fillText("NEW HIGH SCORE — ENTER YOUR INITIALS", W / 2, 200);
+      ctx.fillStyle = "#cfd6ee"; ctx.font = "13px system-ui";
+      ctx.fillText("Type A–Z / 0–9   ·   ← →  move   ·   ↑ ↓  cycle   ·   Enter  submit", W / 2, 224);
+      // Big glowing letter boxes.
+      const boxW = 70, boxH = 86, gap = 18;
+      const totalW = boxW * 3 + gap * 2;
+      const bx = (W - totalW) / 2;
+      for (let i = 0; i < 3; i++) {
+        const x = bx + i * (boxW + gap);
+        const y = 250;
+        const active = i === en.pos;
+        ctx.fillStyle = active ? "#1a2a6c" : "#0b1224";
+        ctx.fillRect(x, y, boxW, boxH);
+        ctx.strokeStyle = active ? "#ffd27a" : "#ffffff44";
+        ctx.lineWidth = active ? 3 : 2;
+        ctx.strokeRect(x, y, boxW, boxH);
+        ctx.save();
+        if (active) { ctx.shadowColor = "#ffd27a"; ctx.shadowBlur = 18; }
+        ctx.fillStyle = "#fff"; ctx.font = "bold 54px system-ui";
+        ctx.fillText(en.letters[i], x + boxW / 2, y + boxH / 2 + 4);
+        ctx.restore();
+      }
+    } else {
+      ctx.fillStyle = "#cfd6ee"; ctx.font = "16px system-ui";
+      ctx.fillText("Press R to restart", W / 2, 188);
+    }
+
+    // Leaderboard panel.
+    const panelX = W / 2 - 170, panelY = 360, panelW = 340, panelH = 160;
+    ctx.fillStyle = "#0b1224dd"; ctx.fillRect(panelX, panelY, panelW, panelH);
+    ctx.strokeStyle = "#ffffff22"; ctx.strokeRect(panelX, panelY, panelW, panelH);
+    ctx.fillStyle = "#9fd1ff"; ctx.font = "bold 18px system-ui";
+    ctx.fillText("HIGH SCORES", W / 2, panelY + 22);
+    const entries = state.hiscores.slice(0, 5);
+    ctx.font = "14px ui-monospace, Menlo, Consolas, monospace";
+    ctx.textAlign = "left";
+    const just = (state.entry && state.entry.submitted) ? state.entry.letters.join("") : null;
+    const justScore = state.entry ? state.entry.score : null;
+    for (let i = 0; i < entries.length; i++) {
+      const row = entries[i];
+      const y = panelY + 52 + i * 20;
+      const isJust = just && row.initials === just && row.score === justScore;
+      ctx.fillStyle = isJust ? "#ffd27a" : "#cfd6ee";
+      ctx.fillText(`${String(i + 1).padStart(2, " ")}.`, panelX + 20, y);
+      ctx.fillText(row.initials, panelX + 60, y);
+      ctx.textAlign = "right";
+      ctx.fillText(String(row.score), panelX + panelW - 20, y);
+      ctx.textAlign = "left";
+    }
+    if (entries.length === 0) {
+      ctx.fillStyle = "#8d95ad"; ctx.textAlign = "center";
+      ctx.fillText("(no scores yet)", W / 2, panelY + 72);
+    }
+    ctx.textBaseline = "alphabetic";
+  }
+
+  if (state.paused) {
     ctx.fillStyle = "#000a"; ctx.fillRect(0, 0, W, H);
-    ctx.fillStyle = "#fff"; ctx.textAlign = "center";
-    ctx.font = "48px system-ui"; ctx.fillText("GAME OVER", W / 2, H / 2 - 10);
-    ctx.font = "18px system-ui"; ctx.fillText(`Score: ${state.score} — press R to restart`, W / 2, H / 2 + 24);
+    ctx.textAlign = "center"; ctx.textBaseline = "middle";
+    ctx.save();
+    ctx.shadowColor = "#5fb8ff"; ctx.shadowBlur = 28;
+    ctx.fillStyle = "#9fd1ff";
+    ctx.font = "bold 64px system-ui";
+    ctx.fillText("PAUSED", W / 2, H / 2 - 10);
+    ctx.restore();
+    ctx.fillStyle = "#cfd6ee"; ctx.font = "18px system-ui";
+    ctx.fillText("Press P to resume", W / 2, H / 2 + 36);
+    ctx.textBaseline = "alphabetic";
   }
 }
 
@@ -1071,13 +1367,14 @@ let last = performance.now();
 function frame(now) {
   const dt = Math.min(0.05, (now - last) / 1000);
   last = now;
-  update(dt);
+  if (!state.paused) update(dt);
   render();
   requestAnimationFrame(frame);
 }
 
 async function main() {
   initStars();
+  state.hiscores = loadHiscores();
   try {
     state.sprites = await loadSprites();
     state.player = makePlayer(state.sprites);
