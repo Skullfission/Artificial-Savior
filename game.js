@@ -17,6 +17,9 @@ const WEAPONS = {
 const WEAPON_ORDER = ["small", "large", "laser", "missle"];
 
 const UPGRADE_INTERVAL = 2500;
+const BOSS_SCORE_TRIGGER = 10000;
+const BOSS_HP = 5000;
+const BOSS_REWARD = 5000;
 
 // ---------- Asset loader ----------
 
@@ -61,6 +64,7 @@ function makePlayer(sprites) {
     speed: 340,
     hp: 10, maxHp: 10,
     weapon: "small",
+    unlocked: { small: true, large: false, laser: false, missle: false },
     cd: 0,
     invuln: 0,
     tier: 1,
@@ -109,7 +113,10 @@ const state = {
   error: null,
   upgradeBanner: 0,
   upgradeText: "",
-  toast: null
+  toast: null,
+  boss: null,
+  bossTriggered: false,
+  bossDefeated: false
 };
 
 function initStars() {
@@ -130,6 +137,69 @@ function reset() {
   state.gameOver = false;
   state.upgradeBanner = 0;
   state.toast = null;
+  state.boss = null;
+  state.bossTriggered = false;
+  state.bossDefeated = false;
+}
+
+function spawnBoss() {
+  const s = state.sprites.enemyDragon;
+  const boss = {
+    x: W + 160, y: H / 2,
+    vx: -90, vy: 0,
+    baseY: H / 2,
+    size: s.size * 2.6,
+    img: s.img,
+    hp: BOSS_HP, maxHp: BOSS_HP,
+    fireCd: 1.2,
+    burstCd: 3.0,
+    isBoss: true,
+    entering: true,
+    phase: 0,
+    t: 0
+  };
+  state.enemies.push(boss);
+  state.boss = boss;
+  state.bossTriggered = true;
+  state.upgradeBanner = 3.5;
+  state.upgradeText = "!! MINI-BOSS INCOMING !!";
+}
+
+function bossFire(e) {
+  // Aimed triple-spread at the player.
+  const p = state.player;
+  const dx = p.x - e.x, dy = p.y - e.y;
+  const ang = Math.atan2(dy, dx);
+  const speed = 420;
+  for (const off of [-0.22, 0, 0.22]) {
+    const a = ang + off;
+    state.bullets.push({
+      x: e.x - e.size * 0.35, y: e.y,
+      vx: Math.cos(a) * speed, vy: Math.sin(a) * speed,
+      size: 14, damage: 2,
+      color: "#ff7a3a",
+      img: null,
+      life: 2.8,
+      friendly: false
+    });
+  }
+}
+
+function bossBurst(e) {
+  // Radial burst — punishes staying still.
+  const n = 14;
+  for (let i = 0; i < n; i++) {
+    const a = (i / n) * Math.PI * 2 + Math.random() * 0.05;
+    state.bullets.push({
+      x: e.x, y: e.y,
+      vx: Math.cos(a) * 300, vy: Math.sin(a) * 300,
+      size: 12, damage: 2,
+      color: "#ff3a7a",
+      img: null,
+      life: 2.5,
+      friendly: false
+    });
+  }
 }
 
 // ---------- Systems ----------
@@ -144,7 +214,8 @@ function fireWeapon(p, dt) {
     vx: w.speed, vy: 0,
     size: w.size, damage: w.damage + (p.damageBonus || 0),
     color: w.color,
-    img: state.sprites[w.sprite].img,
+    weapon: p.weapon,
+    img: null,
     life: 1.6,
     friendly: true
   });
@@ -190,32 +261,70 @@ function burst(x, y, color, n = 14) {
 }
 
 function spawnPickup(x, y, tier) {
-  // Higher tier => slightly better odds of weapon-boost drops.
-  const weaponOdds = 0.45 + Math.min(0.25, (tier - 1) * 0.04);
-  const type = Math.random() < weaponOdds ? "weapon" : "health";
+  const p = state.player;
+  // Prefer weapon-unlock drops for any still-locked weapons, with health as a common drop.
+  const lockedKeys = WEAPON_ORDER.filter(k => p && !p.unlocked[k]);
+  const pool = [];
+  // Health is always in the pool.
+  pool.push({ type: "health", weight: 1.2 });
+  if (lockedKeys.length > 0) {
+    // Locked weapons drop more often as tier increases.
+    const lockWeight = 1.0 + Math.min(1.5, (tier - 1) * 0.25);
+    for (const k of lockedKeys) pool.push({ type: "unlock-" + k, weapon: k, weight: lockWeight });
+  } else {
+    // All weapons unlocked => re-enable boost drops.
+    pool.push({ type: "boost", weight: 1.4 });
+  }
+  let total = 0;
+  for (const e of pool) total += e.weight;
+  let r = Math.random() * total;
+  let chosen = pool[0];
+  for (const e of pool) { r -= e.weight; if (r <= 0) { chosen = e; break; } }
   state.pickups.push({
     x, y,
     vx: -60 - Math.random() * 40,
     vy: (Math.random() - 0.5) * 40,
     size: 26,
-    type,
-    life: 8,
+    type: chosen.type,
+    weapon: chosen.weapon || null,
+    life: 10,
     bob: Math.random() * Math.PI * 2
   });
 }
+
+const UNLOCK_LABEL = {
+  large:  { text: "LARGE GUN UNLOCKED", color: "#ffd27a", sprite: "weaponLarge"  },
+  laser:  { text: "LASER UNLOCKED",     color: "#ff6bd6", sprite: "weaponLaser"  },
+  missle: { text: "MISSILE UNLOCKED",   color: "#ffb26b", sprite: "weaponMissle" }
+};
 
 function collectPickup(p, pk) {
   if (pk.type === "health") {
     const heal = 2 + Math.floor(p.tier);
     p.hp = Math.min(p.maxHp, p.hp + heal);
     showToast(`+${heal} HP`, "#6bd68a");
-  } else {
-    // Permanent projectile boost: a bit more damage + a bit faster fire rate.
+    burst(pk.x, pk.y, "#6bd68a", 18);
+  } else if (pk.type === "boost") {
     p.damageBonus += 1;
     p.cooldownMul *= 0.92;
     showToast("WEAPON BOOST", "#ffd27a");
+    burst(pk.x, pk.y, "#ffd27a", 18);
+  } else if (pk.type && pk.type.startsWith("unlock-")) {
+    const key = pk.weapon;
+    if (key && !p.unlocked[key]) {
+      p.unlocked[key] = true;
+      p.weapon = key; // Auto-equip the newly unlocked weapon.
+      const info = UNLOCK_LABEL[key] || { text: key.toUpperCase() + " UNLOCKED", color: "#fff" };
+      showToast(info.text, info.color);
+      burst(pk.x, pk.y, info.color, 24);
+    } else {
+      // Already unlocked (edge case): treat as a boost instead.
+      p.damageBonus += 1;
+      p.cooldownMul *= 0.92;
+      showToast("WEAPON BOOST", "#ffd27a");
+      burst(pk.x, pk.y, "#ffd27a", 18);
+    }
   }
-  burst(pk.x, pk.y, pk.type === "health" ? "#6bd68a" : "#ffd27a", 18);
 }
 
 function update(dt) {
@@ -242,25 +351,74 @@ function update(dt) {
   p.y = Math.max(p.size / 2, Math.min(H - p.size / 2, p.y));
 
   for (let i = 0; i < WEAPON_ORDER.length; i++) {
-    if (keys.has(String(i + 1))) p.weapon = WEAPON_ORDER[i];
+    if (keys.has(String(i + 1))) {
+      const key = WEAPON_ORDER[i];
+      if (p.unlocked[key]) {
+        p.weapon = key;
+      } else {
+        // Prevent spamming the toast on key repeat.
+        if (!state._lockedToastKey || state._lockedToastKey !== key || (state.toast == null)) {
+          showToast(`${WEAPONS[key].label.toUpperCase()} LOCKED`, "#ff6b6b");
+          state._lockedToastKey = key;
+        }
+      }
+    }
   }
 
   fireWeapon(p, dt);
   if (p.invuln > 0) p.invuln -= dt;
 
-  state.spawnTimer -= dt;
-  if (state.spawnTimer <= 0) {
-    spawnEnemy();
-    state.spawnTimer = Math.max(0.45, 1.6 - state.t * 0.015);
+  // Trigger the mini-boss once the threshold is crossed.
+  if (!state.bossTriggered && !state.bossDefeated && state.score >= BOSS_SCORE_TRIGGER) {
+    spawnBoss();
+  }
+
+  // Suspend regular spawns while the boss is alive.
+  if (!state.boss) {
+    state.spawnTimer -= dt;
+    if (state.spawnTimer <= 0) {
+      spawnEnemy();
+      state.spawnTimer = Math.max(0.45, 1.6 - state.t * 0.015);
+    }
   }
 
   for (const e of state.enemies) {
-    e.x += e.vx * dt;
-    e.y = e.baseY + Math.sin(state.t * 2 + e.baseY) * 24;
-    e.fireCd -= dt;
-    if (e.fireCd <= 0 && e.x < W - 20) { enemyFire(e); e.fireCd = 1.0 + Math.random() * 1.4; }
+    if (e.isBoss) {
+      e.t += dt;
+      // Slide in from the right, then hover and track player Y.
+      if (e.entering) {
+        e.x += e.vx * dt;
+        if (e.x <= W - e.size * 0.55) { e.x = W - e.size * 0.55; e.entering = false; e.vx = 0; }
+      } else {
+        const trackSpeed = 140;
+        const dy = state.player.y - e.y;
+        e.vy = Math.max(-trackSpeed, Math.min(trackSpeed, dy * 2.2));
+        // Add sinusoidal lunge toward and away from the player.
+        const lunge = Math.sin(e.t * 1.3) * 60;
+        e.x += (W - e.size * 0.55 - lunge - e.x) * Math.min(1, dt * 2.5);
+        e.y += e.vy * dt;
+        e.y = Math.max(e.size / 2, Math.min(H - e.size / 2, e.y));
+      }
+      e.fireCd -= dt;
+      e.burstCd -= dt;
+      if (!e.entering && e.fireCd <= 0) {
+        bossFire(e);
+        // Fire rate intensifies as HP drops.
+        const rage = 1 - Math.max(0, e.hp) / e.maxHp;
+        e.fireCd = Math.max(0.25, 0.9 - rage * 0.6);
+      }
+      if (!e.entering && e.burstCd <= 0) {
+        bossBurst(e);
+        e.burstCd = 3.4 - (1 - e.hp / e.maxHp) * 1.4;
+      }
+    } else {
+      e.x += e.vx * dt;
+      e.y = e.baseY + Math.sin(state.t * 2 + e.baseY) * 24;
+      e.fireCd -= dt;
+      if (e.fireCd <= 0 && e.x < W - 20) { enemyFire(e); e.fireCd = 1.0 + Math.random() * 1.4; }
+    }
   }
-  state.enemies = state.enemies.filter(e => e.x > -100 && e.hp > 0);
+  state.enemies = state.enemies.filter(e => e.hp > 0 && (e.isBoss || e.x > -100));
 
   for (const b of state.bullets) {
     b.x += b.vx * dt; b.y += b.vy * dt; b.life -= dt;
@@ -274,12 +432,21 @@ function update(dt) {
           e.hp -= b.damage; b.life = 0;
           burst(b.x, b.y, b.color, 6);
           if (e.hp <= 0) {
-            burst(e.x, e.y, "#ffb26b", 24);
-            state.score += 100;
-            // Random drop on kill; chance scales modestly with tier.
-            const dropChance = 0.15 + Math.min(0.25, (state.player.tier - 1) * 0.04);
-            if (Math.random() < dropChance) spawnPickup(e.x, e.y, state.player.tier);
-            // Every UPGRADE_INTERVAL points => ship level up.
+            if (e.isBoss) {
+              for (let k = 0; k < 6; k++) burst(e.x + (Math.random() - 0.5) * e.size * 0.8, e.y + (Math.random() - 0.5) * e.size * 0.8, "#ff9a3a", 40);
+              state.score += BOSS_REWARD;
+              state.bossDefeated = true;
+              state.boss = null;
+              state.upgradeBanner = 4.0;
+              state.upgradeText = "BOSS DEFEATED";
+              // Reward drops.
+              for (let k = 0; k < 3; k++) spawnPickup(e.x + (Math.random() - 0.5) * 60, e.y + (Math.random() - 0.5) * 60, state.player.tier + 2);
+            } else {
+              burst(e.x, e.y, "#ffb26b", 24);
+              state.score += 100;
+              const dropChance = 0.15 + Math.min(0.25, (state.player.tier - 1) * 0.04);
+              if (Math.random() < dropChance) spawnPickup(e.x, e.y, state.player.tier);
+            }
             while (state.score >= state.player.nextUpgrade) levelUp(state.player);
           }
         }
@@ -296,7 +463,9 @@ function update(dt) {
   if (p.invuln <= 0) {
     for (const e of state.enemies) {
       if (Math.abs(e.x - p.x) < (e.size + p.size) * 0.4 && Math.abs(e.y - p.y) < (e.size + p.size) * 0.4) {
-        p.hp -= 3; p.invuln = 1.0; e.hp = 0;
+        const dmg = e.isBoss ? 5 : 3;
+        p.hp -= dmg; p.invuln = 1.0;
+        if (!e.isBoss) e.hp = 0;
         burst((e.x + p.x) / 2, (e.y + p.y) / 2, "#ffb26b", 28);
         if (p.hp <= 0) state.gameOver = true;
       }
@@ -339,6 +508,81 @@ function drawSprite(img, x, y, size, rotation = 0) {
   ctx.restore();
 }
 
+function drawProjectile(kind, x, y, size) {
+  ctx.save();
+  ctx.translate(x, y);
+  if (kind === "small") {
+    // Tiny yellow dot.
+    const r = Math.max(2.5, size * 0.22);
+    ctx.shadowColor = "#ffe066"; ctx.shadowBlur = 8;
+    ctx.fillStyle = "#fff3a0";
+    ctx.beginPath(); ctx.arc(0, 0, r, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = "#ffd400";
+    ctx.beginPath(); ctx.arc(0, 0, r * 0.65, 0, Math.PI * 2); ctx.fill();
+  } else if (kind === "large") {
+    // Orange orb with softer outer glow.
+    const r = size * 0.42;
+    const g = ctx.createRadialGradient(0, 0, 0, 0, 0, r);
+    g.addColorStop(0, "#fff3c2");
+    g.addColorStop(0.35, "#ffb347");
+    g.addColorStop(1, "#c44a00");
+    ctx.shadowColor = "#ff8a1f"; ctx.shadowBlur = 14;
+    ctx.fillStyle = g;
+    ctx.beginPath(); ctx.arc(0, 0, r, 0, Math.PI * 2); ctx.fill();
+  } else if (kind === "laser") {
+    // Horizontal glowing blue line.
+    const len = size * 1.6, th = Math.max(2, size * 0.14);
+    ctx.shadowColor = "#5fb8ff"; ctx.shadowBlur = 18;
+    ctx.fillStyle = "#bfe4ff";
+    ctx.fillRect(-len / 2, -th / 2, len, th);
+    ctx.fillStyle = "#2aa4ff";
+    ctx.fillRect(-len / 2, -th * 0.25, len, th * 0.5);
+    ctx.fillStyle = "#ffffff";
+    ctx.fillRect(-len / 2, -th * 0.1, len, th * 0.2);
+  } else if (kind === "missle") {
+    // Missile-shaped sprite in grey with red nose and fins.
+    const L = size * 1.4, H2 = size * 0.45;
+    // Body (grey)
+    ctx.fillStyle = "#8a8f96";
+    ctx.fillRect(-L * 0.4, -H2 / 2, L * 0.75, H2);
+    // Body highlight
+    ctx.fillStyle = "#c2c7cc";
+    ctx.fillRect(-L * 0.4, -H2 / 2, L * 0.75, H2 * 0.25);
+    // Red nose cone (pointing right — travel direction)
+    ctx.fillStyle = "#d0302a";
+    ctx.beginPath();
+    ctx.moveTo(L * 0.35, -H2 / 2);
+    ctx.lineTo(L * 0.6, 0);
+    ctx.lineTo(L * 0.35, H2 / 2);
+    ctx.closePath(); ctx.fill();
+    // Red tail fins
+    ctx.fillStyle = "#b02822";
+    ctx.beginPath();
+    ctx.moveTo(-L * 0.4, -H2 / 2);
+    ctx.lineTo(-L * 0.55, -H2);
+    ctx.lineTo(-L * 0.25, -H2 / 2);
+    ctx.closePath(); ctx.fill();
+    ctx.beginPath();
+    ctx.moveTo(-L * 0.4, H2 / 2);
+    ctx.lineTo(-L * 0.55, H2);
+    ctx.lineTo(-L * 0.25, H2 / 2);
+    ctx.closePath(); ctx.fill();
+    // Exhaust flicker
+    ctx.shadowColor = "#ffb347"; ctx.shadowBlur = 10;
+    ctx.fillStyle = "#ffd27a";
+    const flick = 0.6 + Math.random() * 0.5;
+    ctx.beginPath();
+    ctx.moveTo(-L * 0.4, -H2 * 0.35);
+    ctx.lineTo(-L * (0.55 + 0.1 * flick), 0);
+    ctx.lineTo(-L * 0.4, H2 * 0.35);
+    ctx.closePath(); ctx.fill();
+  } else {
+    ctx.fillStyle = "#fff";
+    ctx.fillRect(-size / 2, -2, size, 4);
+  }
+  ctx.restore();
+}
+
 function render() {
   ctx.fillStyle = "#000";
   ctx.fillRect(0, 0, W, H);
@@ -364,8 +608,8 @@ function render() {
 
   // Bullets
   for (const b of state.bullets) {
-    if (b.img && b.friendly) {
-      drawSprite(b.img, b.x, b.y, b.size, Math.PI / 2);
+    if (b.friendly) {
+      drawProjectile(b.weapon || "small", b.x, b.y, b.size);
     } else {
       ctx.fillStyle = b.color;
       ctx.fillRect(b.x - b.size / 2, b.y - 2, b.size, 4);
@@ -388,6 +632,18 @@ function render() {
       ctx.fillStyle = "#0b1224";
       ctx.fillRect(-r * 0.55, -r * 0.18, r * 1.1, r * 0.36);
       ctx.fillRect(-r * 0.18, -r * 0.55, r * 0.36, r * 1.1);
+    } else if (pk.type && pk.type.startsWith("unlock-") && pk.weapon) {
+      const info = UNLOCK_LABEL[pk.weapon];
+      // Glowing halo ring to flag it as an unlock drop.
+      ctx.shadowColor = info ? info.color : "#fff"; ctx.shadowBlur = 16;
+      ctx.strokeStyle = info ? info.color : "#fff"; ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.arc(0, 0, pk.size * 0.7 * pulse, 0, Math.PI * 2); ctx.stroke();
+      ctx.shadowBlur = 0;
+      // Draw a scaled-up version of the actual projectile so the pickup reads clearly.
+      ctx.restore();
+      drawProjectile(pk.weapon, pk.x, pk.y, pk.size * 1.25 * pulse);
+      ctx.save();
+      ctx.translate(pk.x, pk.y);
     } else {
       const img = state.sprites.weaponMissle.img;
       const sz = pk.size * pulse;
@@ -432,6 +688,22 @@ function render() {
   ctx.fillStyle = p.hp > 3 ? "#6bd68a" : "#ff6b6b";
   ctx.fillRect(140, 18, 120 * Math.max(0, p.hp) / p.maxHp, 14);
   ctx.strokeStyle = "#fff6"; ctx.strokeRect(140, 18, 120, 14);
+
+  // Boss HP bar
+  if (state.boss) {
+    const b = state.boss;
+    const bw = 520, bh = 16, bx = (W - bw) / 2, by = 74;
+    ctx.fillStyle = "#0b1224cc"; ctx.fillRect(bx - 6, by - 22, bw + 12, bh + 28);
+    ctx.strokeStyle = "#ffffff33"; ctx.strokeRect(bx - 6, by - 22, bw + 12, bh + 28);
+    ctx.fillStyle = "#fff"; ctx.textAlign = "center"; ctx.font = "bold 14px system-ui";
+    ctx.fillText(`MINI-BOSS  —  ${Math.max(0, Math.ceil(b.hp))} / ${b.maxHp}`, W / 2, by - 6);
+    ctx.fillStyle = "#ffffff22"; ctx.fillRect(bx, by, bw, bh);
+    const pct = Math.max(0, b.hp) / b.maxHp;
+    const grad = ctx.createLinearGradient(bx, 0, bx + bw, 0);
+    grad.addColorStop(0, "#ff3a7a"); grad.addColorStop(1, "#ff9a3a");
+    ctx.fillStyle = grad; ctx.fillRect(bx, by, bw * pct, bh);
+    ctx.strokeStyle = "#fff6"; ctx.strokeRect(bx, by, bw, bh);
+  }
 
   if (state.upgradeBanner > 0) {
     const a = Math.min(1, state.upgradeBanner / 0.5);
