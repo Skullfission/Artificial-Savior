@@ -67,8 +67,166 @@ const audio = (() => {
   let started = false;
   let available = true;
   music.addEventListener("error", () => { available = false; });
+
+  // Procedural SFX via Web Audio so we don't need any additional files.
+  let actx = null;
+  function ensureCtx() {
+    if (!actx) {
+      const C = window.AudioContext || window.webkitAudioContext;
+      if (!C) return null;
+      try { actx = new C(); } catch (e) { return null; }
+    }
+    if (actx.state === "suspended") actx.resume();
+    return actx;
+  }
+
+  function envGain(ac, startVol, sustain, release) {
+    const g = ac.createGain();
+    const now = ac.currentTime;
+    g.gain.setValueAtTime(0.0001, now);
+    g.gain.exponentialRampToValueAtTime(startVol, now + 0.005);
+    g.gain.exponentialRampToValueAtTime(Math.max(0.0001, startVol * 0.6), now + 0.005 + sustain);
+    g.gain.exponentialRampToValueAtTime(0.0001, now + 0.005 + sustain + release);
+    return g;
+  }
+
+  function noiseBuffer(ac, duration) {
+    const n = Math.floor(ac.sampleRate * duration);
+    const buf = ac.createBuffer(1, n, ac.sampleRate);
+    const data = buf.getChannelData(0);
+    for (let i = 0; i < n; i++) data[i] = Math.random() * 2 - 1;
+    return buf;
+  }
+
+  function sfxSmall(ac) {
+    // Tiny "pew" — short high square blip.
+    const o = ac.createOscillator();
+    o.type = "square";
+    const now = ac.currentTime;
+    o.frequency.setValueAtTime(1400, now);
+    o.frequency.exponentialRampToValueAtTime(700, now + 0.05);
+    const g = envGain(ac, 0.03, 0.02, 0.05);
+    o.connect(g).connect(ac.destination);
+    o.start(); o.stop(now + 0.09);
+  }
+
+  function sfxLarge(ac) {
+    // Robust, heavier thump — triangle body + square snap.
+    const now = ac.currentTime;
+    const tri = ac.createOscillator(); tri.type = "triangle";
+    tri.frequency.setValueAtTime(320, now);
+    tri.frequency.exponentialRampToValueAtTime(120, now + 0.18);
+    const g1 = envGain(ac, 0.085, 0.05, 0.18);
+    tri.connect(g1).connect(ac.destination);
+    tri.start(); tri.stop(now + 0.25);
+
+    const sq = ac.createOscillator(); sq.type = "square";
+    sq.frequency.setValueAtTime(180, now);
+    sq.frequency.exponentialRampToValueAtTime(70, now + 0.12);
+    const g2 = envGain(ac, 0.045, 0.02, 0.12);
+    sq.connect(g2).connect(ac.destination);
+    sq.start(); sq.stop(now + 0.18);
+  }
+
+  function sfxLaser(ac) {
+    // Energy ray — saw sweeping down through a resonant lowpass.
+    const now = ac.currentTime;
+    const o = ac.createOscillator(); o.type = "sawtooth";
+    o.frequency.setValueAtTime(1600, now);
+    o.frequency.exponentialRampToValueAtTime(260, now + 0.22);
+    const lp = ac.createBiquadFilter();
+    lp.type = "lowpass"; lp.Q.value = 12;
+    lp.frequency.setValueAtTime(2200, now);
+    lp.frequency.exponentialRampToValueAtTime(500, now + 0.22);
+    const g = envGain(ac, 0.055, 0.05, 0.18);
+    o.connect(lp).connect(g).connect(ac.destination);
+    o.start(); o.stop(now + 0.28);
+  }
+
+  function sfxMissle(ac) {
+    // Rocket whoosh — filtered noise + low rumble sweep.
+    const now = ac.currentTime;
+    const src = ac.createBufferSource();
+    src.buffer = noiseBuffer(ac, 0.6);
+    const bp = ac.createBiquadFilter();
+    bp.type = "bandpass"; bp.Q.value = 0.9;
+    bp.frequency.setValueAtTime(900, now);
+    bp.frequency.exponentialRampToValueAtTime(220, now + 0.5);
+    const gn = envGain(ac, 0.075, 0.18, 0.35);
+    src.connect(bp).connect(gn).connect(ac.destination);
+    src.start(); src.stop(now + 0.6);
+
+    const o = ac.createOscillator(); o.type = "sine";
+    o.frequency.setValueAtTime(220, now);
+    o.frequency.exponentialRampToValueAtTime(70, now + 0.5);
+    const g2 = envGain(ac, 0.045, 0.20, 0.30);
+    o.connect(g2).connect(ac.destination);
+    o.start(); o.stop(now + 0.6);
+  }
+
+  function sfxExplosion(ac) {
+    // Big boom — loud low thump + sustained noise tail.
+    const now = ac.currentTime;
+    const src = ac.createBufferSource();
+    src.buffer = noiseBuffer(ac, 1.2);
+    const lp = ac.createBiquadFilter();
+    lp.type = "lowpass";
+    lp.frequency.setValueAtTime(1800, now);
+    lp.frequency.exponentialRampToValueAtTime(180, now + 0.9);
+    const gn = envGain(ac, 0.55, 0.25, 0.9);
+    src.connect(lp).connect(gn).connect(ac.destination);
+    src.start(); src.stop(now + 1.2);
+
+    const o = ac.createOscillator(); o.type = "sine";
+    o.frequency.setValueAtTime(140, now);
+    o.frequency.exponentialRampToValueAtTime(40, now + 0.9);
+    const g2 = envGain(ac, 0.55, 0.15, 0.9);
+    o.connect(g2).connect(ac.destination);
+    o.start(); o.stop(now + 1.1);
+  }
+
+  function sfxEnemyShot(ac) {
+    // Dark laser-style enemy shot — saw sweeping through a resonant lowpass,
+    // tuned lower and quieter than the player's laser.
+    const now = ac.currentTime;
+    const o = ac.createOscillator(); o.type = "sawtooth";
+    o.frequency.setValueAtTime(900, now);
+    o.frequency.exponentialRampToValueAtTime(140, now + 0.22);
+    const lp = ac.createBiquadFilter();
+    lp.type = "lowpass"; lp.Q.value = 10;
+    lp.frequency.setValueAtTime(1200, now);
+    lp.frequency.exponentialRampToValueAtTime(280, now + 0.22);
+    const g = envGain(ac, 0.025, 0.05, 0.18);
+    o.connect(lp).connect(g).connect(ac.destination);
+    o.start(); o.stop(now + 0.28);
+  }
+
+  function sfxEnemyDie(ac) {
+    // Small explosion — brief noise burst + low thump, no screen shake.
+    const now = ac.currentTime;
+    const src = ac.createBufferSource();
+    src.buffer = noiseBuffer(ac, 0.3);
+    const lp = ac.createBiquadFilter();
+    lp.type = "lowpass";
+    lp.frequency.setValueAtTime(1400, now);
+    lp.frequency.exponentialRampToValueAtTime(260, now + 0.22);
+    const gn = envGain(ac, 0.22, 0.06, 0.22);
+    src.connect(lp).connect(gn).connect(ac.destination);
+    src.start(); src.stop(now + 0.32);
+
+    const o = ac.createOscillator(); o.type = "sine";
+    o.frequency.setValueAtTime(210, now);
+    o.frequency.exponentialRampToValueAtTime(70, now + 0.22);
+    const g2 = envGain(ac, 0.20, 0.04, 0.2);
+    o.connect(g2).connect(ac.destination);
+    o.start(); o.stop(now + 0.28);
+  }
+
+  const SFX = { small: sfxSmall, large: sfxLarge, laser: sfxLaser, missle: sfxMissle, explosion: sfxExplosion, enemyShot: sfxEnemyShot, enemyDie: sfxEnemyDie };
+
   return {
     unlockAndPlay() {
+      ensureCtx();
       if (!available || muted || started) return;
       const p = music.play();
       if (p && typeof p.then === "function") {
@@ -81,6 +239,13 @@ const audio = (() => {
       muted = !muted;
       if (muted) { music.pause(); }
       else { started = false; this.unlockAndPlay(); }
+    },
+    playSfx(kind) {
+      if (muted) return;
+      const ac = ensureCtx();
+      if (!ac) return;
+      const fn = SFX[kind];
+      if (fn) fn(ac);
     },
     get muted() { return muted; },
     get available() { return available; },
@@ -152,8 +317,12 @@ const state = {
   toast: null,
   boss: null,
   bossTriggered: false,
-  bossDefeated: false
+  bossDefeated: false,
+  phase: "title",
+  titleElapsed: 0
 };
+
+const TITLE_DURATION = 20;
 
 function initStars() {
   state.stars = [];
@@ -219,6 +388,22 @@ function bossFire(e) {
       friendly: false
     });
   }
+  audio.playSfx("enemyShot");
+}
+
+function killPlayer(p) {
+  if (state.gameOver) return;
+  state.gameOver = true;
+  // Big visual explosion — several overlapping colored bursts.
+  for (let k = 0; k < 5; k++) {
+    const ox = (Math.random() - 0.5) * p.size * 0.9;
+    const oy = (Math.random() - 0.5) * p.size * 0.9;
+    burst(p.x + ox, p.y + oy, "#ffd27a", 28);
+    burst(p.x + ox, p.y + oy, "#ff5a3a", 28);
+  }
+  burst(p.x, p.y, "#ffffff", 40);
+  burst(p.x, p.y, "#9fd1ff", 24);
+  audio.playSfx("explosion");
 }
 
 function bossBurst(e) {
@@ -236,6 +421,7 @@ function bossBurst(e) {
       friendly: false
     });
   }
+  audio.playSfx("enemyShot");
 }
 
 // ---------- Systems ----------
@@ -255,6 +441,7 @@ function fireWeapon(p, dt) {
     life: 1.6,
     friendly: true
   });
+  audio.playSfx(p.weapon);
 }
 
 function spawnEnemy() {
@@ -282,6 +469,7 @@ function enemyFire(e) {
     life: 2.2,
     friendly: false
   });
+  audio.playSfx("enemyShot");
 }
 
 function showToast(text, color) {
@@ -369,6 +557,18 @@ function update(dt) {
   for (const s of state.stars) {
     s.x -= s.z * 60 * dt;
     if (s.x < 0) { s.x = W; s.y = Math.random() * H; }
+  }
+
+  if (state.phase === "title") {
+    // Advance the title timer only once music has actually started playing.
+    // If audio is unavailable (missing file), still advance so the game isn't stuck.
+    if (audio.started || !audio.available) state.titleElapsed += dt;
+    // Let the player skip with Enter or Space once music has started.
+    if ((keys.has("enter") || keys.has(" ")) && (audio.started || !audio.available)) {
+      state.phase = "play";
+    }
+    if (state.titleElapsed >= TITLE_DURATION) state.phase = "play";
+    return;
   }
 
   if (state.gameOver) {
@@ -479,6 +679,7 @@ function update(dt) {
               for (let k = 0; k < 3; k++) spawnPickup(e.x + (Math.random() - 0.5) * 60, e.y + (Math.random() - 0.5) * 60, state.player.tier + 2);
             } else {
               burst(e.x, e.y, "#ffb26b", 24);
+              audio.playSfx("enemyDie");
               state.score += 100;
               const dropChance = 0.15 + Math.min(0.25, (state.player.tier - 1) * 0.04);
               if (Math.random() < dropChance) spawnPickup(e.x, e.y, state.player.tier);
@@ -491,7 +692,7 @@ function update(dt) {
       if (Math.abs(b.x - p.x) < p.size * 0.4 && Math.abs(b.y - p.y) < p.size * 0.4) {
         p.hp -= b.damage; b.life = 0; p.invuln = 0.8;
         burst(p.x, p.y, "#ff5a5a", 16);
-        if (p.hp <= 0) state.gameOver = true;
+        if (p.hp <= 0) killPlayer(p);
       }
     }
   }
@@ -501,9 +702,9 @@ function update(dt) {
       if (Math.abs(e.x - p.x) < (e.size + p.size) * 0.4 && Math.abs(e.y - p.y) < (e.size + p.size) * 0.4) {
         const dmg = e.isBoss ? 5 : 3;
         p.hp -= dmg; p.invuln = 1.0;
-        if (!e.isBoss) e.hp = 0;
+        if (!e.isBoss) { e.hp = 0; audio.playSfx("enemyDie"); }
         burst((e.x + p.x) / 2, (e.y + p.y) / 2, "#ffb26b", 28);
-        if (p.hp <= 0) state.gameOver = true;
+        if (p.hp <= 0) killPlayer(p);
       }
     }
   }
@@ -619,6 +820,73 @@ function drawProjectile(kind, x, y, size) {
   ctx.restore();
 }
 
+function renderTitle() {
+  const t = state.t;
+  // Dim vignette behind the title.
+  const vg = ctx.createRadialGradient(W / 2, H / 2, 40, W / 2, H / 2, W * 0.7);
+  vg.addColorStop(0, "#0b1a3acc");
+  vg.addColorStop(1, "#00000000");
+  ctx.fillStyle = vg; ctx.fillRect(0, 0, W, H);
+
+  // Player ship drifts slowly across as flavor.
+  if (state.sprites && state.sprites.player) {
+    const s = state.sprites.player;
+    const sx = ((t * 40) % (W + 200)) - 100;
+    const sy = H * 0.75 + Math.sin(t * 0.8) * 18;
+    ctx.save();
+    ctx.globalAlpha = 0.85;
+    ctx.drawImage(s.img, sx - s.size / 2, sy - s.size / 2, s.size, s.size);
+    ctx.restore();
+  }
+
+  // Title "Artificial Savior" with neon-glow double-draw.
+  ctx.textAlign = "center"; ctx.textBaseline = "middle";
+  const tx = W / 2, ty = H * 0.42;
+  const bob = Math.sin(t * 1.6) * 3;
+
+  ctx.save();
+  ctx.shadowColor = "#5fb8ff"; ctx.shadowBlur = 40;
+  ctx.fillStyle = "#9fd1ff";
+  ctx.font = "bold 92px system-ui";
+  ctx.fillText("Artificial Savior", tx, ty + bob);
+  ctx.shadowBlur = 14;
+  ctx.fillStyle = "#ffffff";
+  ctx.fillText("Artificial Savior", tx, ty + bob);
+  ctx.restore();
+
+  // Subtitle underline.
+  ctx.strokeStyle = "#5fb8ff88"; ctx.lineWidth = 2;
+  ctx.beginPath(); ctx.moveTo(tx - 260, ty + 56); ctx.lineTo(tx + 260, ty + 56); ctx.stroke();
+
+  // Tagline.
+  ctx.fillStyle = "#cfd6ee"; ctx.font = "18px system-ui";
+  ctx.fillText("A space shooter", tx, ty + 86);
+
+  // Prompt / countdown.
+  ctx.font = "16px system-ui";
+  if (!audio.available) {
+    const remaining = Math.max(0, TITLE_DURATION - state.titleElapsed);
+    ctx.fillStyle = "#ff8a8a";
+    ctx.fillText(`(audio/Artificial Savior.mp3 missing — starting in ${Math.ceil(remaining)}s)`, tx, H - 80);
+  } else if (!audio.started) {
+    const pulse = 0.6 + Math.abs(Math.sin(t * 3)) * 0.4;
+    ctx.globalAlpha = pulse;
+    ctx.fillStyle = "#ffd27a";
+    ctx.fillText("Press any key to begin", tx, H - 80);
+    ctx.globalAlpha = 1;
+  } else {
+    const remaining = Math.max(0, TITLE_DURATION - state.titleElapsed);
+    ctx.fillStyle = "#9fd1ff";
+    ctx.fillText(`Launching in ${Math.ceil(remaining)}s  —  press Enter to skip`, tx, H - 80);
+  }
+
+  // Controls reminder.
+  ctx.fillStyle = "#8d95ad"; ctx.font = "13px system-ui";
+  ctx.fillText("WASD / Arrows to move   ·   Space to fire   ·   1-4 weapons   ·   M to mute", tx, H - 46);
+
+  ctx.textBaseline = "alphabetic";
+}
+
 function render() {
   ctx.fillStyle = "#000";
   ctx.fillRect(0, 0, W, H);
@@ -639,6 +907,11 @@ function render() {
     ctx.fillStyle = "#fff"; ctx.font = "20px system-ui";
     ctx.textAlign = "center";
     ctx.fillText(state.error ? "Error: " + state.error : "Loading sprites…", W / 2, H / 2);
+    return;
+  }
+
+  if (state.phase === "title") {
+    renderTitle();
     return;
   }
 
