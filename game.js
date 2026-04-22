@@ -47,10 +47,46 @@ async function loadSprites() {
 
 const keys = new Set();
 addEventListener("keydown", e => {
-  keys.add(e.key.toLowerCase());
-  if ([" ", "arrowup", "arrowdown", "arrowleft", "arrowright"].includes(e.key.toLowerCase())) e.preventDefault();
+  const k = e.key.toLowerCase();
+  keys.add(k);
+  if ([" ", "arrowup", "arrowdown", "arrowleft", "arrowright"].includes(k)) e.preventDefault();
+  if (k === "m") audio.toggleMute();
+  audio.unlockAndPlay();
 });
 addEventListener("keyup", e => keys.delete(e.key.toLowerCase()));
+addEventListener("pointerdown", () => audio.unlockAndPlay());
+
+// ---------- Audio ----------
+
+const audio = (() => {
+  const music = new Audio("audio/Artificial Savior.mp3");
+  music.loop = true;
+  music.preload = "auto";
+  music.volume = 0.55;
+  let muted = false;
+  let started = false;
+  let available = true;
+  music.addEventListener("error", () => { available = false; });
+  return {
+    unlockAndPlay() {
+      if (!available || muted || started) return;
+      const p = music.play();
+      if (p && typeof p.then === "function") {
+        p.then(() => { started = true; }).catch(() => { /* retry on next input */ });
+      } else {
+        started = true;
+      }
+    },
+    toggleMute() {
+      muted = !muted;
+      if (muted) { music.pause(); }
+      else { started = false; this.unlockAndPlay(); }
+    },
+    get muted() { return muted; },
+    get available() { return available; },
+    get started() { return started; }
+  };
+})();
 
 // ---------- Entities ----------
 
@@ -734,6 +770,19 @@ function render() {
   ctx.strokeStyle = "#fff6"; ctx.strokeRect(W - 190, 18, 170, 10);
   ctx.fillStyle = "#cfd6ee"; ctx.font = "12px system-ui"; ctx.textAlign = "right";
   ctx.fillText(`MK ${p.tier}  →  MK ${p.tier + 1} @ ${p.nextUpgrade}`, W - 20, 44);
+
+  // Audio indicator
+  const ax = W - 20, ay = 60;
+  ctx.textAlign = "right"; ctx.font = "12px system-ui";
+  if (!audio.available) {
+    ctx.fillStyle = "#ff8a8a"; ctx.fillText("♪ missing audio/Artificial Savior.mp3", ax, ay);
+  } else if (audio.muted) {
+    ctx.fillStyle = "#ffb26b"; ctx.fillText("♪ muted (M)", ax, ay);
+  } else if (!audio.started) {
+    ctx.fillStyle = "#cfd6ee"; ctx.fillText("♪ press any key to play music (M to mute)", ax, ay);
+  } else {
+    ctx.fillStyle = "#9fd1ff"; ctx.fillText("♪ playing (M to mute)", ax, ay);
+  }
 
   if (state.gameOver) {
     ctx.fillStyle = "#000a"; ctx.fillRect(0, 0, W, H);
