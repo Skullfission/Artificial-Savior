@@ -1,0 +1,14 @@
+{
+  "name": "Artificial Savior",
+  "short_name": "Artificial Savior",
+  "description": "A browser-based space shooter. Created by Bruce Beerman.",
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "landscape",
+  "background_color": "#05070d",
+  "theme_color": "#5fb8ff",
+  "icons": [
+    { "src": "Ship art/MK 2 ship.png", "sizes": "512x512", "type": "image/png", "purpose": "any" }
+  ]
+}
