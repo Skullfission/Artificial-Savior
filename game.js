@@ -16,10 +16,13 @@ const WEAPONS = {
 };
 const WEAPON_ORDER = ["small", "large", "laser", "missle"];
 
-const UPGRADE_INTERVAL = 3000;
+const UPGRADE_INTERVAL = 4000;
 const BOSS_SCORE_TRIGGER = 10000;
 const BOSS_HP = 5000;
 const BOSS_REWARD = 5000;
+const SEMIBOSS_SCORE_TRIGGER = 50000;
+const SEMIBOSS_HP = 12000;
+const SEMIBOSS_REWARD = 15000;
 
 // ---------- Asset loader ----------
 
@@ -439,6 +442,8 @@ const state = {
   boss: null,
   bossTriggered: false,
   bossDefeated: false,
+  semiBossTriggered: false,
+  semiBossDefeated: false,
   phase: "title",
   titleElapsed: 0,
   paused: false,
@@ -503,6 +508,8 @@ function reset() {
   state.boss = null;
   state.bossTriggered = false;
   state.bossDefeated = false;
+  state.semiBossTriggered = false;
+  state.semiBossDefeated = false;
   state.entry = null;
 }
 
@@ -518,6 +525,7 @@ function spawnBoss() {
     fireCd: 1.2,
     burstCd: 3.0,
     isBoss: true,
+    kind: "mini",
     entering: true,
     phase: 0,
     t: 0
@@ -527,6 +535,30 @@ function spawnBoss() {
   state.bossTriggered = true;
   state.upgradeBanner = 3.5;
   state.upgradeText = "!! MINI-BOSS INCOMING !!";
+}
+
+function spawnSemiBoss() {
+  // Procedurally-rendered menacing cruiser — no sprite image.
+  const boss = {
+    x: W + 220, y: H / 2,
+    vx: -110, vy: 0,
+    baseY: H / 2,
+    size: 260,
+    img: null,
+    hp: SEMIBOSS_HP, maxHp: SEMIBOSS_HP,
+    fireCd: 1.4,
+    burstCd: 3.5,
+    isBoss: true,
+    kind: "semi",
+    entering: true,
+    phase: 0,
+    t: 0
+  };
+  state.enemies.push(boss);
+  state.boss = boss;
+  state.semiBossTriggered = true;
+  state.upgradeBanner = 4.5;
+  state.upgradeText = "!! SEMI-FINAL BOSS — THE SCOURGE !!";
 }
 
 function bossFire(e) {
@@ -548,6 +580,125 @@ function bossFire(e) {
     });
   }
   audio.playSfx("enemyShot");
+}
+
+function drawSemiBoss(e) {
+  const t = state.t;
+  const s = e.size;
+  ctx.save();
+  ctx.translate(e.x, e.y);
+  // Face left.
+  ctx.scale(-1, 1);
+
+  // Outer menacing aura — pulsing red glow.
+  const auraPulse = 0.85 + 0.15 * Math.sin(t * 2.2);
+  const aura = ctx.createRadialGradient(0, 0, s * 0.25, 0, 0, s * 0.95 * auraPulse);
+  aura.addColorStop(0, "rgba(255, 40, 40, 0.55)");
+  aura.addColorStop(1, "rgba(255, 40, 40, 0)");
+  ctx.fillStyle = aura;
+  ctx.beginPath(); ctx.arc(0, 0, s * 0.95, 0, Math.PI * 2); ctx.fill();
+
+  // Engine exhaust plumes at the rear (flickering).
+  const flick = 0.55 + 0.45 * Math.sin(t * 24);
+  const plume = ctx.createLinearGradient(-s * 0.45, 0, -s * 0.85, 0);
+  plume.addColorStop(0, `rgba(255, 120, 40, ${0.85 * flick})`);
+  plume.addColorStop(1, "rgba(255, 40, 40, 0)");
+  ctx.fillStyle = plume;
+  ctx.beginPath();
+  ctx.moveTo(-s * 0.45, -s * 0.18);
+  ctx.lineTo(-s * 0.9 - flick * 18, 0);
+  ctx.lineTo(-s * 0.45, s * 0.18);
+  ctx.closePath();
+  ctx.fill();
+
+  // Main hull — dark angular arrowhead.
+  ctx.fillStyle = "#14070f";
+  ctx.strokeStyle = "#ff3a3a";
+  ctx.lineWidth = 3;
+  ctx.beginPath();
+  ctx.moveTo(s * 0.55, 0);
+  ctx.lineTo(s * 0.35, -s * 0.28);
+  ctx.lineTo(-s * 0.15, -s * 0.42);
+  ctx.lineTo(-s * 0.45, -s * 0.22);
+  ctx.lineTo(-s * 0.45,  s * 0.22);
+  ctx.lineTo(-s * 0.15,  s * 0.42);
+  ctx.lineTo(s * 0.35,  s * 0.28);
+  ctx.closePath();
+  ctx.fill();
+  ctx.stroke();
+
+  // Armor striations.
+  ctx.strokeStyle = "#5a1820";
+  ctx.lineWidth = 1;
+  for (let i = -3; i <= 3; i++) {
+    ctx.beginPath();
+    ctx.moveTo(-s * 0.4, i * s * 0.1);
+    ctx.lineTo(s * 0.32, i * s * 0.1);
+    ctx.stroke();
+  }
+
+  // Jagged teeth at the front (shark-like maw).
+  ctx.fillStyle = "#3a1010";
+  for (let i = -3; i <= 3; i++) {
+    const yy = i * s * 0.09;
+    ctx.beginPath();
+    ctx.moveTo(s * 0.5, yy - s * 0.035);
+    ctx.lineTo(s * 0.62, yy);
+    ctx.lineTo(s * 0.5, yy + s * 0.035);
+    ctx.closePath();
+    ctx.fill();
+  }
+
+  // Glowing crimson core — pulsing, with an inner hot-white point.
+  const pulse = 0.72 + 0.28 * Math.sin(t * 3.1);
+  const coreR = s * 0.14 * pulse;
+  ctx.save();
+  ctx.shadowColor = "#ff1818";
+  ctx.shadowBlur = 36;
+  ctx.fillStyle = "#ff3030";
+  ctx.beginPath(); ctx.arc(0, 0, coreR, 0, Math.PI * 2); ctx.fill();
+  ctx.shadowBlur = 0;
+  ctx.fillStyle = "#ffffff";
+  ctx.beginPath(); ctx.arc(0, 0, coreR * 0.42, 0, Math.PI * 2); ctx.fill();
+  ctx.restore();
+
+  // Turret pods above and below that track the player (aim indicators).
+  const p = state.player;
+  // We're in a flipped frame, so invert x-delta for aiming.
+  const aimAng = Math.atan2(p.y - e.y, -(p.x - e.x));
+  for (const py of [-s * 0.3, s * 0.3]) {
+    ctx.save();
+    ctx.translate(0, py);
+    ctx.rotate(aimAng);
+    ctx.fillStyle = "#260808";
+    ctx.strokeStyle = "#ff3a3a";
+    ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.arc(0, 0, s * 0.085, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+    ctx.fillStyle = "#ff3a3a";
+    ctx.fillRect(0, -s * 0.022, s * 0.2, s * 0.044);
+    // Muzzle tip highlight when firing is imminent.
+    if (e.fireCd < 0.2) {
+      ctx.fillStyle = "#fff";
+      ctx.beginPath(); ctx.arc(s * 0.2, 0, s * 0.018, 0, Math.PI * 2); ctx.fill();
+    }
+    ctx.restore();
+  }
+
+  // Forward horn spikes on the nose.
+  ctx.fillStyle = "#2a0a0a";
+  ctx.strokeStyle = "#ff3a3a";
+  ctx.lineWidth = 1.5;
+  for (const yy of [-s * 0.24, s * 0.24]) {
+    ctx.beginPath();
+    ctx.moveTo(s * 0.35, yy);
+    ctx.lineTo(s * 0.55, yy * 0.55);
+    ctx.lineTo(s * 0.35, yy * 0.25);
+    ctx.closePath();
+    ctx.fill();
+    ctx.stroke();
+  }
+
+  ctx.restore();
 }
 
 function killPlayer(p) {
@@ -582,6 +733,46 @@ function bossBurst(e) {
       color: "#ff3a7a",
       img: null,
       life: 2.5,
+      friendly: false
+    });
+  }
+  audio.playSfx("enemyShot");
+}
+
+function semiBossFire(e) {
+  // Wide 5-way aimed spread with slight y-scatter per barrel.
+  const p = state.player;
+  const dx = p.x - e.x, dy = p.y - e.y;
+  const ang = Math.atan2(dy, dx);
+  const speed = 480;
+  for (const off of [-0.36, -0.18, 0, 0.18, 0.36]) {
+    const a = ang + off;
+    state.bullets.push({
+      x: e.x - e.size * 0.35, y: e.y + (Math.random() - 0.5) * 24,
+      vx: Math.cos(a) * speed, vy: Math.sin(a) * speed,
+      size: 16, damage: 3,
+      color: "#ff4040",
+      img: null,
+      life: 3.0,
+      friendly: false
+    });
+  }
+  audio.playSfx("enemyShot");
+}
+
+function semiBossBurst(e) {
+  // Dense rotating radial barrage.
+  const n = 24;
+  const spin = e.t * 0.4;
+  for (let i = 0; i < n; i++) {
+    const a = (i / n) * Math.PI * 2 + spin;
+    state.bullets.push({
+      x: e.x, y: e.y,
+      vx: Math.cos(a) * 340, vy: Math.sin(a) * 340,
+      size: 14, damage: 2,
+      color: "#ff2070",
+      img: null,
+      life: 2.8,
       friendly: false
     });
   }
@@ -772,6 +963,10 @@ function update(dt) {
   if (!state.bossTriggered && !state.bossDefeated && state.score >= BOSS_SCORE_TRIGGER) {
     spawnBoss();
   }
+  // Trigger the semi-final boss once the threshold is crossed (and no other boss is active).
+  if (!state.semiBossTriggered && !state.semiBossDefeated && !state.boss && state.score >= SEMIBOSS_SCORE_TRIGGER) {
+    spawnSemiBoss();
+  }
 
   // Suspend regular spawns while the boss is alive.
   if (!state.boss) {
@@ -785,31 +980,32 @@ function update(dt) {
   for (const e of state.enemies) {
     if (e.isBoss) {
       e.t += dt;
+      const semi = e.kind === "semi";
       // Slide in from the right, then hover and track player Y.
       if (e.entering) {
         e.x += e.vx * dt;
         if (e.x <= W - e.size * 0.55) { e.x = W - e.size * 0.55; e.entering = false; e.vx = 0; }
       } else {
-        const trackSpeed = 140;
+        const trackSpeed = semi ? 220 : 140;
         const dy = state.player.y - e.y;
-        e.vy = Math.max(-trackSpeed, Math.min(trackSpeed, dy * 2.2));
+        e.vy = Math.max(-trackSpeed, Math.min(trackSpeed, dy * (semi ? 2.8 : 2.2)));
         // Add sinusoidal lunge toward and away from the player.
-        const lunge = Math.sin(e.t * 1.3) * 60;
-        e.x += (W - e.size * 0.55 - lunge - e.x) * Math.min(1, dt * 2.5);
+        const lunge = Math.sin(e.t * (semi ? 1.8 : 1.3)) * (semi ? 90 : 60);
+        e.x += (W - e.size * 0.55 - lunge - e.x) * Math.min(1, dt * (semi ? 3.2 : 2.5));
         e.y += e.vy * dt;
         e.y = Math.max(e.size / 2, Math.min(H - e.size / 2, e.y));
       }
       e.fireCd -= dt;
       e.burstCd -= dt;
       if (!e.entering && e.fireCd <= 0) {
-        bossFire(e);
+        if (semi) semiBossFire(e); else bossFire(e);
         // Fire rate intensifies as HP drops.
         const rage = 1 - Math.max(0, e.hp) / e.maxHp;
-        e.fireCd = Math.max(0.25, 0.9 - rage * 0.6);
+        e.fireCd = semi ? Math.max(0.18, 0.7 - rage * 0.5) : Math.max(0.25, 0.9 - rage * 0.6);
       }
       if (!e.entering && e.burstCd <= 0) {
-        bossBurst(e);
-        e.burstCd = 3.4 - (1 - e.hp / e.maxHp) * 1.4;
+        if (semi) semiBossBurst(e); else bossBurst(e);
+        e.burstCd = semi ? (2.4 - (1 - e.hp / e.maxHp) * 1.2) : (3.4 - (1 - e.hp / e.maxHp) * 1.4);
       }
     } else {
       e.x += e.vx * dt;
@@ -833,14 +1029,17 @@ function update(dt) {
           burst(b.x, b.y, b.color, 6);
           if (e.hp <= 0) {
             if (e.isBoss) {
-              for (let k = 0; k < 6; k++) burst(e.x + (Math.random() - 0.5) * e.size * 0.8, e.y + (Math.random() - 0.5) * e.size * 0.8, "#ff9a3a", 40);
-              state.score += BOSS_REWARD;
-              state.bossDefeated = true;
+              const semi = e.kind === "semi";
+              const bursts = semi ? 10 : 6;
+              for (let k = 0; k < bursts; k++) burst(e.x + (Math.random() - 0.5) * e.size * 0.8, e.y + (Math.random() - 0.5) * e.size * 0.8, semi ? "#ff3a3a" : "#ff9a3a", 40);
+              state.score += semi ? SEMIBOSS_REWARD : BOSS_REWARD;
+              if (semi) state.semiBossDefeated = true; else state.bossDefeated = true;
               state.boss = null;
               state.upgradeBanner = 4.0;
-              state.upgradeText = "BOSS DEFEATED";
+              state.upgradeText = semi ? "SEMI-FINAL BOSS DEFEATED" : "BOSS DEFEATED";
               // Reward drops.
-              for (let k = 0; k < 3; k++) spawnPickup(e.x + (Math.random() - 0.5) * 60, e.y + (Math.random() - 0.5) * 60, state.player.tier + 2);
+              const drops = semi ? 6 : 3;
+              for (let k = 0; k < drops; k++) spawnPickup(e.x + (Math.random() - 0.5) * 80, e.y + (Math.random() - 0.5) * 80, state.player.tier + (semi ? 3 : 2));
             } else {
               burst(e.x, e.y, "#ffb26b", 24);
               audio.playSfx("enemyDie");
@@ -864,7 +1063,7 @@ function update(dt) {
   if (p.invuln <= 0) {
     for (const e of state.enemies) {
       if (Math.abs(e.x - p.x) < (e.size + p.size) * 0.4 && Math.abs(e.y - p.y) < (e.size + p.size) * 0.4) {
-        const dmg = e.isBoss ? 5 : 3;
+        const dmg = e.isBoss ? (e.kind === "semi" ? 7 : 5) : 3;
         p.hp -= dmg; p.invuln = 1.0;
         if (!e.isBoss) { e.hp = 0; audio.playSfx("enemyDie"); }
         burst((e.x + p.x) / 2, (e.y + p.y) / 2, "#ffb26b", 28);
@@ -1216,6 +1415,7 @@ function render() {
 
   // Enemies (face left)
   for (const e of state.enemies) {
+    if (e.kind === "semi") { drawSemiBoss(e); continue; }
     ctx.save();
     ctx.translate(e.x, e.y);
     ctx.scale(-1, 1);
@@ -1252,15 +1452,17 @@ function render() {
   // Boss HP bar
   if (state.boss) {
     const b = state.boss;
+    const semi = b.kind === "semi";
     const bw = 520, bh = 16, bx = (W - bw) / 2, by = 74;
     ctx.fillStyle = "#0b1224cc"; ctx.fillRect(bx - 6, by - 22, bw + 12, bh + 28);
     ctx.strokeStyle = "#ffffff33"; ctx.strokeRect(bx - 6, by - 22, bw + 12, bh + 28);
     ctx.fillStyle = "#fff"; ctx.textAlign = "center"; ctx.font = "bold 14px system-ui";
-    ctx.fillText(`MINI-BOSS  —  ${Math.max(0, Math.ceil(b.hp))} / ${b.maxHp}`, W / 2, by - 6);
+    ctx.fillText(`${semi ? "SEMI-FINAL BOSS — THE SCOURGE" : "MINI-BOSS"}  —  ${Math.max(0, Math.ceil(b.hp))} / ${b.maxHp}`, W / 2, by - 6);
     ctx.fillStyle = "#ffffff22"; ctx.fillRect(bx, by, bw, bh);
     const pct = Math.max(0, b.hp) / b.maxHp;
     const grad = ctx.createLinearGradient(bx, 0, bx + bw, 0);
-    grad.addColorStop(0, "#ff3a7a"); grad.addColorStop(1, "#ff9a3a");
+    if (semi) { grad.addColorStop(0, "#ff2020"); grad.addColorStop(1, "#ff5ac0"); }
+    else { grad.addColorStop(0, "#ff3a7a"); grad.addColorStop(1, "#ff9a3a"); }
     ctx.fillStyle = grad; ctx.fillRect(bx, by, bw * pct, bh);
     ctx.strokeStyle = "#fff6"; ctx.strokeRect(bx, by, bw, bh);
   }
