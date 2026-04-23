@@ -92,11 +92,7 @@ function handleEntryKey(key) {
   if (key === "ArrowLeft") { if (en.pos > 0) en.pos -= 1; return; }
   if (key === "ArrowRight") { if (en.pos < 2) en.pos += 1; return; }
   if (key === "ArrowUp" || key === "ArrowDown") {
-    const dir = key === "ArrowUp" ? 1 : -1;
-    const cur = en.letters[en.pos];
-    const idx = cur >= "A" && cur <= "Z" ? cur.charCodeAt(0) - 65 : 0;
-    const next = (idx + dir + 26) % 26;
-    en.letters[en.pos] = String.fromCharCode(65 + next);
+    cycleEntryLetter(en.pos, key === "ArrowUp" ? 1 : -1);
     return;
   }
   // Typed letter/number fills current slot and advances.
@@ -107,6 +103,31 @@ function handleEntryKey(key) {
       if (en.pos < 2) en.pos += 1;
     }
   }
+}
+
+// Shared box geometry so rendering and touch hit-testing stay in sync.
+function entryBoxRects() {
+  const boxW = 70, boxH = 86, gap = 18;
+  const totalW = boxW * 3 + gap * 2;
+  const bx = (960 - totalW) / 2;
+  const y = 250;
+  const rects = [];
+  for (let i = 0; i < 3; i++) {
+    rects.push({ i, x: bx + i * (boxW + gap), y, w: boxW, h: boxH });
+  }
+  return rects;
+}
+
+function cycleEntryLetter(pos, dir) {
+  const en = state.entry;
+  if (!en) return;
+  // Cycle through A-Z then 0-9 so touch users can still reach digits.
+  const alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
+  const cur = en.letters[pos];
+  let idx = alphabet.indexOf(cur);
+  if (idx < 0) idx = 0;
+  idx = (idx + dir + alphabet.length) % alphabet.length;
+  en.letters[pos] = alphabet[idx];
 }
 
 // ---------- Audio ----------
@@ -1300,25 +1321,27 @@ function render() {
       ctx.fillStyle = "#ffd27a"; ctx.font = "bold 22px system-ui";
       ctx.fillText("NEW HIGH SCORE — ENTER YOUR INITIALS", W / 2, 200);
       ctx.fillStyle = "#cfd6ee"; ctx.font = "13px system-ui";
-      ctx.fillText("Type A–Z / 0–9   ·   ← →  move   ·   ↑ ↓  cycle   ·   Enter  submit", W / 2, 224);
-      // Big glowing letter boxes.
-      const boxW = 70, boxH = 86, gap = 18;
-      const totalW = boxW * 3 + gap * 2;
-      const bx = (W - totalW) / 2;
-      for (let i = 0; i < 3; i++) {
-        const x = bx + i * (boxW + gap);
-        const y = 250;
-        const active = i === en.pos;
+      ctx.fillText("Type A–Z / 0–9  ·  ← → move  ·  ↑ ↓ cycle  ·  Enter submit", W / 2, 222);
+      ctx.fillText("Touch: tap box to select  ·  tap ▲▼ or swipe ↕ to change  ·  OK to submit", W / 2, 240);
+      // Big glowing letter boxes (geometry via entryBoxRects to keep hit-test in sync).
+      const rects = entryBoxRects();
+      for (const r of rects) {
+        const active = r.i === en.pos;
         ctx.fillStyle = active ? "#1a2a6c" : "#0b1224";
-        ctx.fillRect(x, y, boxW, boxH);
+        ctx.fillRect(r.x, r.y, r.w, r.h);
         ctx.strokeStyle = active ? "#ffd27a" : "#ffffff44";
         ctx.lineWidth = active ? 3 : 2;
-        ctx.strokeRect(x, y, boxW, boxH);
+        ctx.strokeRect(r.x, r.y, r.w, r.h);
         ctx.save();
         if (active) { ctx.shadowColor = "#ffd27a"; ctx.shadowBlur = 18; }
         ctx.fillStyle = "#fff"; ctx.font = "bold 54px system-ui";
-        ctx.fillText(en.letters[i], x + boxW / 2, y + boxH / 2 + 4);
+        ctx.fillText(en.letters[r.i], r.x + r.w / 2, r.y + r.h / 2 + 4);
         ctx.restore();
+        // Up/Down chevrons (also serve as larger tap targets on touch).
+        ctx.fillStyle = active ? "#ffd27a" : "#9fd1ff";
+        ctx.font = "bold 24px system-ui";
+        ctx.fillText("▲", r.x + r.w / 2, r.y - 10);
+        ctx.fillText("▼", r.x + r.w / 2, r.y + r.h + 28);
       }
     } else {
       ctx.fillStyle = "#cfd6ee"; ctx.font = "16px system-ui";
@@ -1489,8 +1512,53 @@ main();
   });
   setInterval(() => { action.textContent = actionLabel(); }, 200);
 
-  // Tap on canvas also skips the title.
-  canvas.addEventListener("pointerdown", () => {
-    if (state.phase === "title") state.titleElapsed = 1e9;
+  // Tap on canvas also skips the title, and handles tap/swipe for high-score initials entry.
+  function toCanvas(e) {
+    const r = canvas.getBoundingClientRect();
+    return {
+      x: (e.clientX - r.left) * (canvas.width / r.width),
+      y: (e.clientY - r.top) * (canvas.height / r.height),
+    };
+  }
+  let tapStart = null;
+  canvas.addEventListener("pointerdown", (e) => {
+    if (state.phase === "title") { state.titleElapsed = 1e9; return; }
+    if (state.entry && !state.entry.submitted) {
+      const p = toCanvas(e);
+      tapStart = { x: p.x, y: p.y, pos: null, chevron: null, time: performance.now() };
+      const rects = entryBoxRects();
+      for (const r of rects) {
+        // Chevron hit zones extend 32px above and below each box.
+        if (p.x >= r.x && p.x <= r.x + r.w) {
+          if (p.y >= r.y - 40 && p.y < r.y) { tapStart.pos = r.i; tapStart.chevron = 1;  break; }
+          if (p.y > r.y + r.h && p.y <= r.y + r.h + 40) { tapStart.pos = r.i; tapStart.chevron = -1; break; }
+          if (p.y >= r.y && p.y <= r.y + r.h) { tapStart.pos = r.i; break; }
+        }
+      }
+      // Fire chevron taps immediately for snappy feedback.
+      if (tapStart.chevron !== null && tapStart.pos !== null) {
+        state.entry.pos = tapStart.pos;
+        cycleEntryLetter(tapStart.pos, tapStart.chevron);
+      }
+      e.preventDefault();
+    }
   });
+  canvas.addEventListener("pointerup", (e) => {
+    if (!tapStart) return;
+    const t = tapStart; tapStart = null;
+    if (t.chevron !== null) return; // already handled on pointerdown
+    if (t.pos === null) return;
+    const p = toCanvas(e);
+    const dy = p.y - t.y;
+    const dx = p.x - t.x;
+    // Swipe threshold in canvas pixels.
+    if (Math.abs(dy) > 24 && Math.abs(dy) > Math.abs(dx)) {
+      state.entry.pos = t.pos;
+      cycleEntryLetter(t.pos, dy < 0 ? 1 : -1);
+    } else if (Math.abs(dx) < 20 && Math.abs(dy) < 20) {
+      // Tap: just select the box.
+      state.entry.pos = t.pos;
+    }
+  });
+  canvas.addEventListener("pointercancel", () => { tapStart = null; });
 })();
