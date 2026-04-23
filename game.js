@@ -66,6 +66,8 @@ addEventListener("keydown", e => {
         state.activeCheat = code;
         state.cheatBanner = 2.5;
         audio.playSfx && audio.playSfx("laser");
+        // Apply immediately so the first run benefits (reset() also re-applies on Retry).
+        if (state.player) applyCheat(state.player);
         break;
       }
     }
