@@ -16,8 +16,7 @@ const WEAPONS = {
 };
 const WEAPON_ORDER = ["small", "large", "laser", "missle"];
 
-const UPGRADE_INTERVAL = 4000;
-const BOSS_SCORE_TRIGGER = 10000;
+const UPGRADE_INTERVAL = 4000;const BOSS_SCORE_TRIGGER = 10000;
 const BOSS_HP = 5000;
 const BOSS_REWARD = 5000;
 const SEMIBOSS_SCORE_TRIGGER = 50000;
@@ -57,6 +56,19 @@ addEventListener("keydown", e => {
     e.preventDefault();
     handleEntryKey(e.key);
     return;
+  }
+
+  // Title-screen cheat-code capture. Silent — not shown publicly.
+  if (state.phase === "title" && /^[a-z]$/.test(k)) {
+    state.cheatBuffer = (state.cheatBuffer + k.toUpperCase()).slice(-8);
+    for (const code of Object.keys(CHEAT_CODES)) {
+      if (state.cheatBuffer.endsWith(code)) {
+        state.activeCheat = code;
+        state.cheatBanner = 2.5;
+        audio.playSfx && audio.playSfx("laser");
+        break;
+      }
+    }
   }
 
   if (e.repeat) return void keys.add(k);
@@ -448,7 +460,18 @@ const state = {
   titleElapsed: 0,
   paused: false,
   hiscores: [],
-  entry: null
+  entry: null,
+  cheatBuffer: "",
+  activeCheat: null,
+  godMode: false,
+  cheatBanner: 0
+};
+
+// Secret cheat codes (entered on the title screen; not surfaced to the UI).
+const CHEAT_CODES = {
+  EDGE: "MK2 ship at level 20 with all projectiles",
+  MICO: "God mode — invulnerable but progress normally",
+  WORM: "Dragon ship with all projectiles and 5000 HP"
 };
 
 const TITLE_DURATION = 20;
@@ -511,6 +534,56 @@ function reset() {
   state.semiBossTriggered = false;
   state.semiBossDefeated = false;
   state.entry = null;
+  state.godMode = false;
+  applyCheat(state.player);
+}
+
+function applyCheat(p) {
+  if (!state.activeCheat) return;
+  const unlockAll = () => { p.unlocked = { small: true, large: true, laser: true, missle: true }; };
+  switch (state.activeCheat) {
+    case "EDGE": {
+      // Jump to MK 20 with cumulative stat gains equivalent to 19 levelUps.
+      const levels = 19;
+      p.tier = 1 + levels;
+      p.maxHp = 10 + 3 * levels;
+      p.hp = p.maxHp;
+      p.speed = 340 + 20 * levels;
+      p.cooldownMul = Math.pow(0.9, levels);
+      p.damageBonus = levels;
+      p.nextUpgrade = UPGRADE_INTERVAL * (levels + 1);
+      if (state.sprites.playerMk2) {
+        p.img = state.sprites.playerMk2.img;
+        p.size = state.sprites.playerMk2.size;
+      }
+      unlockAll();
+      p.weapon = "laser";
+      state.upgradeBanner = 2.5;
+      state.upgradeText = `MK ${p.tier} ONLINE`;
+      break;
+    }
+    case "MICO": {
+      state.godMode = true;
+      unlockAll();
+      p.weapon = "laser";
+      state.upgradeBanner = 2.5;
+      state.upgradeText = "GOD MODE ENGAGED";
+      break;
+    }
+    case "WORM": {
+      const s = state.sprites.enemyDragon;
+      if (s) { p.img = s.img; p.size = s.size; }
+      p.flipX = true;
+      p.maxHp = 5000;
+      p.hp = 5000;
+      unlockAll();
+      p.weapon = "missle";
+      p.damageBonus += 3;
+      state.upgradeBanner = 2.5;
+      state.upgradeText = "DRAGON SHIP";
+      break;
+    }
+  }
 }
 
 function spawnBoss() {
@@ -1053,7 +1126,8 @@ function update(dt) {
       }
     } else if (p.invuln <= 0) {
       if (Math.abs(b.x - p.x) < p.size * 0.4 && Math.abs(b.y - p.y) < p.size * 0.4) {
-        p.hp -= b.damage; b.life = 0; p.invuln = 0.8;
+        if (!state.godMode) p.hp -= b.damage;
+        b.life = 0; p.invuln = 0.8;
         burst(p.x, p.y, "#ff5a5a", 16);
         if (p.hp <= 0) killPlayer(p);
       }
@@ -1064,7 +1138,8 @@ function update(dt) {
     for (const e of state.enemies) {
       if (Math.abs(e.x - p.x) < (e.size + p.size) * 0.4 && Math.abs(e.y - p.y) < (e.size + p.size) * 0.4) {
         const dmg = e.isBoss ? (e.kind === "semi" ? 7 : 5) : 3;
-        p.hp -= dmg; p.invuln = 1.0;
+        if (!state.godMode) p.hp -= dmg;
+        p.invuln = 1.0;
         if (!e.isBoss) { e.hp = 0; audio.playSfx("enemyDie"); }
         burst((e.x + p.x) / 2, (e.y + p.y) / 2, "#ffb26b", 28);
         if (p.hp <= 0) killPlayer(p);
@@ -1095,6 +1170,7 @@ function update(dt) {
   state.pickups = state.pickups.filter(pk => pk.life > 0 && pk.x > -40);
 
   if (state.upgradeBanner > 0) state.upgradeBanner -= dt;
+  if (state.cheatBanner > 0) state.cheatBanner -= dt;
   if (state.toast) { state.toast.life -= dt; if (state.toast.life <= 0) state.toast = null; }
 }
 
@@ -1254,6 +1330,20 @@ function renderTitle() {
   // Controls reminder.
   ctx.fillStyle = "#8d95ad"; ctx.font = "13px system-ui";
   ctx.fillText("WASD / Arrows to move   ·   Space to fire   ·   1-4 weapons   ·   P pause   ·   M mute", tx, H - 46);
+
+  // Brief cheat confirmation flash (never reveals the code list).
+  if (state.cheatBanner > 0 && state.activeCheat) {
+    const a = Math.min(1, state.cheatBanner / 0.5);
+    ctx.globalAlpha = a;
+    ctx.fillStyle = "#ffd27a"; ctx.font = "bold 18px system-ui";
+    ctx.fillText(`◆ ${state.activeCheat} ARMED ◆`, tx, H - 110);
+    ctx.globalAlpha = 1;
+  } else if (state.activeCheat) {
+    // Tiny corner indicator once armed, non-revealing.
+    ctx.fillStyle = "#ffd27a88"; ctx.font = "11px system-ui"; ctx.textAlign = "right";
+    ctx.fillText(`◆ ${state.activeCheat}`, W - 12, H - 12);
+    ctx.textAlign = "center";
+  }
 
   // High-score panel on the right.
   if (state.hiscores && state.hiscores.length > 0) {
@@ -1426,7 +1516,26 @@ function render() {
   // Player
   const p = state.player;
   const blink = p.invuln > 0 && Math.floor(state.t * 20) % 2 === 0;
-  if (!blink) drawSprite(p.img, p.x, p.y, p.size);
+  if (!blink) {
+    if (p.flipX) {
+      ctx.save();
+      ctx.translate(p.x, p.y);
+      ctx.scale(-1, 1);
+      ctx.drawImage(p.img, -p.size / 2, -p.size / 2, p.size, p.size);
+      ctx.restore();
+    } else {
+      drawSprite(p.img, p.x, p.y, p.size);
+    }
+  }
+  // God-mode shimmer halo.
+  if (state.godMode) {
+    ctx.save();
+    const pulse = 0.5 + 0.5 * Math.sin(state.t * 6);
+    ctx.strokeStyle = `rgba(255, 215, 80, ${0.45 + 0.3 * pulse})`;
+    ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.arc(p.x, p.y, p.size * 0.62, 0, Math.PI * 2); ctx.stroke();
+    ctx.restore();
+  }
 
   // Particles
   for (const pt of state.particles) {
@@ -1496,6 +1605,14 @@ function render() {
   ctx.strokeStyle = "#fff6"; ctx.strokeRect(W - 190, 18, 170, 10);
   ctx.fillStyle = "#cfd6ee"; ctx.font = "12px system-ui"; ctx.textAlign = "right";
   ctx.fillText(`MK ${p.tier}  →  MK ${p.tier + 1} @ ${p.nextUpgrade}`, W - 20, 44);
+
+  // Active-cheat HUD indicator (small, non-revealing beyond the active code).
+  if (state.activeCheat) {
+    ctx.textAlign = "left";
+    ctx.font = "bold 11px system-ui";
+    ctx.fillStyle = state.godMode ? "#ffd27a" : "#ff9ad0";
+    ctx.fillText(`◆ ${state.activeCheat}${state.godMode ? "  GOD" : ""}`, 20, 66);
+  }
 
   // Audio indicator
   const ax = W - 20, ay = 60;
