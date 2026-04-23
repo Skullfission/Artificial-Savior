@@ -2,7 +2,7 @@
   "id": "/Artificial-Savior/",
   "name": "Artificial Savior",
   "short_name": "Artificial Savior",
-  "description": "A side-scrolling space shooter. Dodge, shoot, upgrade your ship, unlock new weapons, and survive the mini-boss. Created by Bruce Beerman.",
+  "description": "A side-scrolling space shooter. Dodge enemy fire, upgrade your ship every 4,000 points, unlock new weapons, down the mini-boss at 10k, then face The Scourge — the semi-final boss — at 50,000. Created by Bruce Beerman.",
   "lang": "en-US",
   "dir": "ltr",
   "start_url": "./index.html",
@@ -28,8 +28,9 @@
   ],
   "screenshots": [
     { "src": "store-assets/screenshot-1.png", "sizes": "1280x720", "type": "image/png", "form_factor": "wide", "label": "Dogfighting through the opening waves" },
-    { "src": "store-assets/screenshot-2.png", "sizes": "1280x720", "type": "image/png", "form_factor": "wide", "label": "Facing the mini-boss dragon" },
-    { "src": "store-assets/screenshot-3.png", "sizes": "1280x720", "type": "image/png", "form_factor": "wide", "label": "Ship upgrade with new weapon unlocked" }
+    { "src": "store-assets/screenshot-2.png", "sizes": "1280x720", "type": "image/png", "form_factor": "wide", "label": "Facing the mini-boss dragon at 10,000 points" },
+    { "src": "store-assets/screenshot-3.png", "sizes": "1280x720", "type": "image/png", "form_factor": "wide", "label": "Ship upgrade every 4,000 points unlocks new weapons" },
+    { "src": "store-assets/screenshot-4.png", "sizes": "1280x720", "type": "image/png", "form_factor": "wide", "label": "The Scourge — semi-final boss at 50,000 points" }
   ],
   "prefer_related_applications": false
 }
