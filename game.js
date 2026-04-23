@@ -21,7 +21,7 @@ const BOSS_SCORE_TRIGGER = 10000;
 const BOSS_HP = 5000;
 const BOSS_REWARD = 5000;
 const SEMIBOSS_SCORE_TRIGGER = 50000;
-const SEMIBOSS_HP = 16000;
+const SEMIBOSS_HP = 31000;
 const SEMIBOSS_REWARD = 15000;
 
 // ---------- Asset loader ----------
