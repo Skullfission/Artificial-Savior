@@ -472,8 +472,7 @@ const state = {
 // Secret cheat codes (entered on the title screen; not surfaced to the UI).
 const CHEAT_CODES = {
   EDGE: "MK2 ship at level 20 with all projectiles",
-  MICO: "God mode — invulnerable but progress normally",
-  WORM: "Dragon ship with all projectiles and 5000 HP"
+  MICO: "God mode — invulnerable but progress normally"
 };
 
 const TITLE_DURATION = 20;
@@ -570,19 +569,6 @@ function applyCheat(p) {
       p.weapon = "laser";
       state.upgradeBanner = 2.5;
       state.upgradeText = "GOD MODE ENGAGED";
-      break;
-    }
-    case "WORM": {
-      const s = state.sprites.enemyDragon;
-      if (s) { p.img = s.img; p.size = s.size; }
-      p.flipX = true;
-      p.maxHp = 5000;
-      p.hp = 5000;
-      unlockAll();
-      p.weapon = "missle";
-      p.damageBonus += 3;
-      state.upgradeBanner = 2.5;
-      state.upgradeText = "DRAGON SHIP";
       break;
     }
   }
