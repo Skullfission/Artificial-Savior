@@ -16,12 +16,19 @@ const WEAPONS = {
 };
 const WEAPON_ORDER = ["small", "large", "laser", "missle"];
 
-const UPGRADE_INTERVAL = 4000;const BOSS_SCORE_TRIGGER = 10000;
+const UPGRADE_INTERVAL = 10000;
+const BOSS_SCORE_TRIGGER = 10000;
+const MK2_TIER = 5;
+const MK3_TIER = 10;
 const BOSS_HP = 5000;
 const BOSS_REWARD = 5000;
 const SEMIBOSS_SCORE_TRIGGER = 50000;
 const SEMIBOSS_HP = 31000;
 const SEMIBOSS_REWARD = 15000;
+const FINAL_BOSS_SCORE_TRIGGER = 100000;
+const FINAL_BOSS_LEVEL_TRIGGER = 20;
+const FINAL_BOSS_HP = SEMIBOSS_HP * 2;
+const FINAL_BOSS_REWARD = 30000;
 
 // ---------- Asset loader ----------
 
@@ -40,7 +47,16 @@ async function loadSprites() {
   const defs = await res.json();
   const out = {};
   await Promise.all(Object.entries(defs).map(async ([key, def]) => {
-    out[key] = { ...def, img: await loadImage(def.image) };
+    try {
+      out[key] = { ...def, img: await loadImage(def.image) };
+    } catch (err) {
+      if (def.optional) {
+        console.warn(`Optional sprite "${key}" failed to load (${def.image}); falling back.`);
+        out[key] = { ...def, img: null };
+      } else {
+        throw err;
+      }
+    }
   }));
   return out;
 }
@@ -418,11 +434,13 @@ function levelUp(p) {
   p.tier += 1;
   p.nextUpgrade += UPGRADE_INTERVAL;
 
-  // One-time sprite swap to MK 2 at tier 2 and above.
-  if (p.tier >= 2 && p.img !== state.sprites.playerMk2.img) {
-    const s = state.sprites.playerMk2;
-    p.img = s.img;
-    p.size = s.size;
+  // Art tier swaps: MK 3 at tier >= MK3_TIER (if available), otherwise MK 2 at tier >= MK2_TIER.
+  const mk3 = state.sprites.playerMk3;
+  const mk2 = state.sprites.playerMk2;
+  if (p.tier >= MK3_TIER && mk3 && mk3.img) {
+    if (p.img !== mk3.img) { p.img = mk3.img; p.size = mk3.size; }
+  } else if (p.tier >= MK2_TIER && mk2 && mk2.img) {
+    if (p.img !== mk2.img) { p.img = mk2.img; p.size = mk2.size; }
   }
 
   p.maxHp += 3;
@@ -458,6 +476,8 @@ const state = {
   bossDefeated: false,
   semiBossTriggered: false,
   semiBossDefeated: false,
+  finalBossTriggered: false,
+  finalBossDefeated: false,
   phase: "title",
   titleElapsed: 0,
   paused: false,
@@ -534,6 +554,8 @@ function reset() {
   state.bossDefeated = false;
   state.semiBossTriggered = false;
   state.semiBossDefeated = false;
+  state.finalBossTriggered = false;
+  state.finalBossDefeated = false;
   state.entry = null;
   state.godMode = false;
   applyCheat(state.player);
@@ -553,9 +575,12 @@ function applyCheat(p) {
       p.cooldownMul = Math.pow(0.9, levels);
       p.damageBonus = levels;
       p.nextUpgrade = UPGRADE_INTERVAL * (levels + 1);
-      if (state.sprites.playerMk2) {
-        p.img = state.sprites.playerMk2.img;
-        p.size = state.sprites.playerMk2.size;
+      const mk3c = state.sprites.playerMk3;
+      const mk2c = state.sprites.playerMk2;
+      if (p.tier >= MK3_TIER && mk3c && mk3c.img) {
+        p.img = mk3c.img; p.size = mk3c.size;
+      } else if (p.tier >= MK2_TIER && mk2c && mk2c.img) {
+        p.img = mk2c.img; p.size = mk2c.size;
       }
       unlockAll();
       p.weapon = "laser";
@@ -599,13 +624,14 @@ function spawnBoss() {
 }
 
 function spawnSemiBoss() {
-  // Procedurally-rendered menacing cruiser — no sprite image.
+  const sprite = state.sprites.semiBoss;
+  const hasImg = !!(sprite && sprite.img);
   const boss = {
     x: W + 220, y: H / 2,
     vx: -110, vy: 0,
     baseY: H / 2,
-    size: 260,
-    img: null,
+    size: hasImg ? sprite.size : 260,
+    img: hasImg ? sprite.img : null,
     hp: SEMIBOSS_HP, maxHp: SEMIBOSS_HP,
     fireCd: 1.4,
     burstCd: 3.5,
@@ -620,6 +646,32 @@ function spawnSemiBoss() {
   state.semiBossTriggered = true;
   state.upgradeBanner = 4.5;
   state.upgradeText = "!! SEMI-FINAL BOSS — THE SCOURGE !!";
+}
+
+function spawnFinalBoss() {
+  // The final boss — larger, tougher, and far more aggressive than the semi-final.
+  const sprite = state.sprites.finalBoss;
+  const hasImg = !!(sprite && sprite.img);
+  const boss = {
+    x: W + 260, y: H / 2,
+    vx: -130, vy: 0,
+    baseY: H / 2,
+    size: hasImg ? sprite.size : 320,
+    img: hasImg ? sprite.img : null,
+    hp: FINAL_BOSS_HP, maxHp: FINAL_BOSS_HP,
+    fireCd: 0.8,
+    burstCd: 2.2,
+    isBoss: true,
+    kind: "final",
+    entering: true,
+    phase: 0,
+    t: 0
+  };
+  state.enemies.push(boss);
+  state.boss = boss;
+  state.finalBossTriggered = true;
+  state.upgradeBanner = 5.0;
+  state.upgradeText = "!! FINAL BOSS — THE HARBINGER !!";
 }
 
 function bossFire(e) {
@@ -840,6 +892,64 @@ function semiBossBurst(e) {
   audio.playSfx("enemyShot");
 }
 
+function finalBossFire(e) {
+  // Aggressive 7-way aimed spread plus two flanking straight shots.
+  const p = state.player;
+  const dx = p.x - e.x, dy = p.y - e.y;
+  const ang = Math.atan2(dy, dx);
+  const speed = 560;
+  for (const off of [-0.48, -0.32, -0.16, 0, 0.16, 0.32, 0.48]) {
+    const a = ang + off;
+    state.bullets.push({
+      x: e.x - e.size * 0.35, y: e.y + (Math.random() - 0.5) * 18,
+      vx: Math.cos(a) * speed, vy: Math.sin(a) * speed,
+      size: 16, damage: 3,
+      color: "#ffb347",
+      img: null,
+      life: 3.2,
+      friendly: false
+    });
+  }
+  // Flanking sniper shots from turret pods.
+  for (const py of [-e.size * 0.3, e.size * 0.3]) {
+    state.bullets.push({
+      x: e.x - e.size * 0.2, y: e.y + py,
+      vx: -720, vy: 0,
+      size: 14, damage: 3,
+      color: "#ffffff",
+      img: null,
+      life: 2.5,
+      friendly: false
+    });
+  }
+  audio.playSfx("enemyShot");
+}
+
+function finalBossBurst(e) {
+  // Two counter-rotating rings — dense, punishing radial pressure.
+  const n = 20;
+  const spin = e.t * 0.5;
+  for (let i = 0; i < n; i++) {
+    const a1 = (i / n) * Math.PI * 2 + spin;
+    const a2 = (i / n) * Math.PI * 2 - spin * 1.2;
+    state.bullets.push({
+      x: e.x, y: e.y,
+      vx: Math.cos(a1) * 380, vy: Math.sin(a1) * 380,
+      size: 14, damage: 2,
+      color: "#ff9020",
+      img: null, life: 3.0, friendly: false
+    });
+    state.bullets.push({
+      x: e.x, y: e.y,
+      vx: Math.cos(a2) * 260, vy: Math.sin(a2) * 260,
+      size: 12, damage: 2,
+      color: "#b040ff",
+      img: null, life: 3.2, friendly: false
+    });
+  }
+  audio.playSfx("enemyShot");
+}
+
 // ---------- Systems ----------
 
 function fireWeapon(p, dt) {
@@ -863,23 +973,29 @@ function fireWeapon(p, dt) {
 function spawnEnemy() {
   const s = state.sprites.enemyDragon;
   const y = 60 + Math.random() * (H - 120);
+  // Enemies scale with player tier: +100 HP per tier, plus faster movement,
+  // quicker firing, and harder bullets so overall difficulty tracks progression.
+  const tier = (state.player && state.player.tier) || 1;
+  const tierBonus = tier - 1;
   state.enemies.push({
     x: W + 80, y,
-    vx: -(90 + Math.random() * 90),
+    vx: -(90 + Math.random() * 90 + tierBonus * 18),
     vy: 0,
     baseY: y,
     size: s.size,
     img: s.img,
-    hp: 6,
-    fireCd: 0.8 + Math.random() * 1.2
+    hp: 6 + tierBonus * 100,
+    fireCd: Math.max(0.25, (0.8 + Math.random() * 1.2) - tierBonus * 0.06),
+    tier
   });
 }
 
 function enemyFire(e) {
+  const extra = Math.max(0, ((e.tier || 1) - 1));
   state.bullets.push({
     x: e.x - e.size * 0.4, y: e.y,
-    vx: -380, vy: 0,
-    size: 12, damage: 1,
+    vx: -(380 + extra * 12), vy: 0,
+    size: 12, damage: 1 + Math.floor(extra / 5),
     color: "#ff5a5a",
     img: null,
     life: 2.2,
@@ -1028,6 +1144,11 @@ function update(dt) {
   if (!state.semiBossTriggered && !state.semiBossDefeated && !state.boss && state.score >= SEMIBOSS_SCORE_TRIGGER) {
     spawnSemiBoss();
   }
+  // Trigger the FINAL boss at 100k points OR player level 20 (whichever comes first).
+  if (!state.finalBossTriggered && !state.finalBossDefeated && !state.boss &&
+      (state.score >= FINAL_BOSS_SCORE_TRIGGER || state.player.tier >= FINAL_BOSS_LEVEL_TRIGGER)) {
+    spawnFinalBoss();
+  }
 
   // Suspend regular spawns while the boss is alive.
   if (!state.boss) {
@@ -1042,31 +1163,40 @@ function update(dt) {
     if (e.isBoss) {
       e.t += dt;
       const semi = e.kind === "semi";
+      const finalB = e.kind === "final";
       // Slide in from the right, then hover and track player Y.
       if (e.entering) {
         e.x += e.vx * dt;
         if (e.x <= W - e.size * 0.55) { e.x = W - e.size * 0.55; e.entering = false; e.vx = 0; }
       } else {
-        const trackSpeed = semi ? 220 : 140;
+        const trackSpeed = finalB ? 320 : semi ? 220 : 140;
         const dy = state.player.y - e.y;
-        e.vy = Math.max(-trackSpeed, Math.min(trackSpeed, dy * (semi ? 2.8 : 2.2)));
+        e.vy = Math.max(-trackSpeed, Math.min(trackSpeed, dy * (finalB ? 3.4 : semi ? 2.8 : 2.2)));
         // Add sinusoidal lunge toward and away from the player.
-        const lunge = Math.sin(e.t * (semi ? 1.8 : 1.3)) * (semi ? 90 : 60);
-        e.x += (W - e.size * 0.55 - lunge - e.x) * Math.min(1, dt * (semi ? 3.2 : 2.5));
+        const lunge = Math.sin(e.t * (finalB ? 2.2 : semi ? 1.8 : 1.3)) * (finalB ? 120 : semi ? 90 : 60);
+        e.x += (W - e.size * 0.55 - lunge - e.x) * Math.min(1, dt * (finalB ? 3.8 : semi ? 3.2 : 2.5));
         e.y += e.vy * dt;
         e.y = Math.max(e.size / 2, Math.min(H - e.size / 2, e.y));
       }
       e.fireCd -= dt;
       e.burstCd -= dt;
       if (!e.entering && e.fireCd <= 0) {
-        if (semi) semiBossFire(e); else bossFire(e);
+        if (finalB) finalBossFire(e);
+        else if (semi) semiBossFire(e);
+        else bossFire(e);
         // Fire rate intensifies as HP drops.
         const rage = 1 - Math.max(0, e.hp) / e.maxHp;
-        e.fireCd = semi ? Math.max(0.18, 0.7 - rage * 0.5) : Math.max(0.25, 0.9 - rage * 0.6);
+        e.fireCd = finalB ? Math.max(0.12, 0.5 - rage * 0.4)
+                 : semi   ? Math.max(0.18, 0.7 - rage * 0.5)
+                          : Math.max(0.25, 0.9 - rage * 0.6);
       }
       if (!e.entering && e.burstCd <= 0) {
-        if (semi) semiBossBurst(e); else bossBurst(e);
-        e.burstCd = semi ? (2.4 - (1 - e.hp / e.maxHp) * 1.2) : (3.4 - (1 - e.hp / e.maxHp) * 1.4);
+        if (finalB) finalBossBurst(e);
+        else if (semi) semiBossBurst(e);
+        else bossBurst(e);
+        e.burstCd = finalB ? (1.6 - (1 - e.hp / e.maxHp) * 1.0)
+                  : semi   ? (2.4 - (1 - e.hp / e.maxHp) * 1.2)
+                           : (3.4 - (1 - e.hp / e.maxHp) * 1.4);
       }
     } else {
       e.x += e.vx * dt;
@@ -1091,16 +1221,20 @@ function update(dt) {
           if (e.hp <= 0) {
             if (e.isBoss) {
               const semi = e.kind === "semi";
-              const bursts = semi ? 10 : 6;
-              for (let k = 0; k < bursts; k++) burst(e.x + (Math.random() - 0.5) * e.size * 0.8, e.y + (Math.random() - 0.5) * e.size * 0.8, semi ? "#ff3a3a" : "#ff9a3a", 40);
-              state.score += semi ? SEMIBOSS_REWARD : BOSS_REWARD;
-              if (semi) state.semiBossDefeated = true; else state.bossDefeated = true;
+              const finalB = e.kind === "final";
+              const bursts = finalB ? 14 : semi ? 10 : 6;
+              const burstColor = finalB ? "#ffb040" : semi ? "#ff3a3a" : "#ff9a3a";
+              for (let k = 0; k < bursts; k++) burst(e.x + (Math.random() - 0.5) * e.size * 0.8, e.y + (Math.random() - 0.5) * e.size * 0.8, burstColor, 40);
+              state.score += finalB ? FINAL_BOSS_REWARD : semi ? SEMIBOSS_REWARD : BOSS_REWARD;
+              if (finalB) state.finalBossDefeated = true;
+              else if (semi) state.semiBossDefeated = true;
+              else state.bossDefeated = true;
               state.boss = null;
               state.upgradeBanner = 4.0;
-              state.upgradeText = semi ? "SEMI-FINAL BOSS DEFEATED" : "BOSS DEFEATED";
+              state.upgradeText = finalB ? "FINAL BOSS DEFEATED" : semi ? "SEMI-FINAL BOSS DEFEATED" : "BOSS DEFEATED";
               // Reward drops.
-              const drops = semi ? 6 : 3;
-              for (let k = 0; k < drops; k++) spawnPickup(e.x + (Math.random() - 0.5) * 80, e.y + (Math.random() - 0.5) * 80, state.player.tier + (semi ? 3 : 2));
+              const drops = finalB ? 10 : semi ? 6 : 3;
+              for (let k = 0; k < drops; k++) spawnPickup(e.x + (Math.random() - 0.5) * 80, e.y + (Math.random() - 0.5) * 80, state.player.tier + (finalB ? 4 : semi ? 3 : 2));
             } else {
               burst(e.x, e.y, "#ffb26b", 24);
               audio.playSfx("enemyDie");
@@ -1125,7 +1259,7 @@ function update(dt) {
   if (p.invuln <= 0) {
     for (const e of state.enemies) {
       if (Math.abs(e.x - p.x) < (e.size + p.size) * 0.4 && Math.abs(e.y - p.y) < (e.size + p.size) * 0.4) {
-        const dmg = e.isBoss ? (e.kind === "semi" ? 7 : 5) : 3;
+        const dmg = e.isBoss ? (e.kind === "final" ? 10 : e.kind === "semi" ? 7 : 5) : 3;
         if (!state.godMode) p.hp -= dmg;
         p.invuln = 1.0;
         if (!e.isBoss) { e.hp = 0; audio.playSfx("enemyDie"); }
@@ -1493,7 +1627,24 @@ function render() {
 
   // Enemies (face left)
   for (const e of state.enemies) {
-    if (e.kind === "semi") { drawSemiBoss(e); continue; }
+    if (e.kind === "semi" || e.kind === "final") {
+      if (e.img) {
+        // Draw the boss from its sprite (faces left, like other enemies).
+        ctx.save();
+        ctx.translate(e.x, e.y);
+        ctx.scale(-1, 1);
+        ctx.drawImage(e.img, -e.size / 2, -e.size / 2, e.size, e.size);
+        ctx.restore();
+      } else if (e.kind === "final") {
+        ctx.save();
+        ctx.filter = "hue-rotate(70deg) saturate(1.25) brightness(1.1)";
+        drawSemiBoss(e);
+        ctx.restore();
+      } else {
+        drawSemiBoss(e);
+      }
+      continue;
+    }
     ctx.save();
     ctx.translate(e.x, e.y);
     ctx.scale(-1, 1);
@@ -1550,16 +1701,21 @@ function render() {
   if (state.boss) {
     const b = state.boss;
     const semi = b.kind === "semi";
+    const finalB = b.kind === "final";
     const bw = 520, bh = 16, bx = (W - bw) / 2, by = 74;
     ctx.fillStyle = "#0b1224cc"; ctx.fillRect(bx - 6, by - 22, bw + 12, bh + 28);
     ctx.strokeStyle = "#ffffff33"; ctx.strokeRect(bx - 6, by - 22, bw + 12, bh + 28);
     ctx.fillStyle = "#fff"; ctx.textAlign = "center"; ctx.font = "bold 14px system-ui";
-    ctx.fillText(`${semi ? "SEMI-FINAL BOSS — THE SCOURGE" : "MINI-BOSS"}  —  ${Math.max(0, Math.ceil(b.hp))} / ${b.maxHp}`, W / 2, by - 6);
+    const label = finalB ? "FINAL BOSS — THE HARBINGER"
+                : semi   ? "SEMI-FINAL BOSS — THE SCOURGE"
+                         : "MINI-BOSS";
+    ctx.fillText(`${label}  —  ${Math.max(0, Math.ceil(b.hp))} / ${b.maxHp}`, W / 2, by - 6);
     ctx.fillStyle = "#ffffff22"; ctx.fillRect(bx, by, bw, bh);
     const pct = Math.max(0, b.hp) / b.maxHp;
     const grad = ctx.createLinearGradient(bx, 0, bx + bw, 0);
-    if (semi) { grad.addColorStop(0, "#ff2020"); grad.addColorStop(1, "#ff5ac0"); }
-    else { grad.addColorStop(0, "#ff3a7a"); grad.addColorStop(1, "#ff9a3a"); }
+    if (finalB)     { grad.addColorStop(0, "#b040ff"); grad.addColorStop(1, "#ffb040"); }
+    else if (semi)  { grad.addColorStop(0, "#ff2020"); grad.addColorStop(1, "#ff5ac0"); }
+    else            { grad.addColorStop(0, "#ff3a7a"); grad.addColorStop(1, "#ff9a3a"); }
     ctx.fillStyle = grad; ctx.fillRect(bx, by, bw * pct, bh);
     ctx.strokeStyle = "#fff6"; ctx.strokeRect(bx, by, bw, bh);
   }
@@ -1656,32 +1812,7 @@ function render() {
     }
 
     // Leaderboard panel.
-    const panelX = W / 2 - 170, panelY = 360, panelW = 340, panelH = 160;
-    ctx.fillStyle = "#0b1224dd"; ctx.fillRect(panelX, panelY, panelW, panelH);
-    ctx.strokeStyle = "#ffffff22"; ctx.strokeRect(panelX, panelY, panelW, panelH);
-    ctx.fillStyle = "#9fd1ff"; ctx.font = "bold 18px system-ui";
-    ctx.fillText("HIGH SCORES", W / 2, panelY + 22);
-    const entries = state.hiscores.slice(0, 5);
-    ctx.font = "14px ui-monospace, Menlo, Consolas, monospace";
-    ctx.textAlign = "left";
-    const just = (state.entry && state.entry.submitted) ? state.entry.letters.join("") : null;
-    const justScore = state.entry ? state.entry.score : null;
-    for (let i = 0; i < entries.length; i++) {
-      const row = entries[i];
-      const y = panelY + 52 + i * 20;
-      const isJust = just && row.initials === just && row.score === justScore;
-      ctx.fillStyle = isJust ? "#ffd27a" : "#cfd6ee";
-      ctx.fillText(`${String(i + 1).padStart(2, " ")}.`, panelX + 20, y);
-      ctx.fillText(row.initials, panelX + 60, y);
-      ctx.textAlign = "right";
-      ctx.fillText(String(row.score), panelX + panelW - 20, y);
-      ctx.textAlign = "left";
-    }
-    if (entries.length === 0) {
-      ctx.fillStyle = "#8d95ad"; ctx.textAlign = "center";
-      ctx.fillText("(no scores yet)", W / 2, panelY + 72);
-    }
-    ctx.textBaseline = "alphabetic";
+    drawLeaderboard(W / 2 - 170, 360, 340, 160);
   }
 
   if (state.paused) {
@@ -1690,13 +1821,44 @@ function render() {
     ctx.save();
     ctx.shadowColor = "#5fb8ff"; ctx.shadowBlur = 28;
     ctx.fillStyle = "#9fd1ff";
-    ctx.font = "bold 64px system-ui";
-    ctx.fillText("PAUSED", W / 2, H / 2 - 10);
+    ctx.font = "bold 56px system-ui";
+    ctx.fillText("PAUSED", W / 2, 110);
     ctx.restore();
     ctx.fillStyle = "#cfd6ee"; ctx.font = "18px system-ui";
-    ctx.fillText("Press P to resume", W / 2, H / 2 + 36);
+    ctx.fillText("Press P to resume", W / 2, 156);
     ctx.textBaseline = "alphabetic";
+    drawLeaderboard(W / 2 - 170, 200, 340, 240);
   }
+}
+
+function drawLeaderboard(panelX, panelY, panelW, panelH) {
+  ctx.fillStyle = "#0b1224dd"; ctx.fillRect(panelX, panelY, panelW, panelH);
+  ctx.strokeStyle = "#ffffff22"; ctx.strokeRect(panelX, panelY, panelW, panelH);
+  ctx.textAlign = "center"; ctx.textBaseline = "alphabetic";
+  ctx.fillStyle = "#9fd1ff"; ctx.font = "bold 18px system-ui";
+  ctx.fillText("HIGH SCORES", panelX + panelW / 2, panelY + 22);
+  const maxRows = Math.max(1, Math.floor((panelH - 40) / 20));
+  const entries = state.hiscores.slice(0, maxRows);
+  ctx.font = "14px ui-monospace, Menlo, Consolas, monospace";
+  ctx.textAlign = "left";
+  const just = (state.entry && state.entry.submitted) ? state.entry.letters.join("") : null;
+  const justScore = state.entry ? state.entry.score : null;
+  for (let i = 0; i < entries.length; i++) {
+    const row = entries[i];
+    const y = panelY + 52 + i * 20;
+    const isJust = just && row.initials === just && row.score === justScore;
+    ctx.fillStyle = isJust ? "#ffd27a" : "#cfd6ee";
+    ctx.fillText(`${String(i + 1).padStart(2, " ")}.`, panelX + 20, y);
+    ctx.fillText(row.initials, panelX + 60, y);
+    ctx.textAlign = "right";
+    ctx.fillText(String(row.score), panelX + panelW - 20, y);
+    ctx.textAlign = "left";
+  }
+  if (entries.length === 0) {
+    ctx.fillStyle = "#8d95ad"; ctx.textAlign = "center";
+    ctx.fillText("(no scores yet)", panelX + panelW / 2, panelY + 72);
+  }
+  ctx.textAlign = "left"; ctx.textBaseline = "alphabetic";
 }
 
 // ---------- Loop ----------

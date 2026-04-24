@@ -1,7 +1,10 @@
 {
   "player":       { "image": "Ship art/MK 1 ship.png",      "size": 64 },
   "playerMk2":    { "image": "Ship art/MK 2 ship.png",      "size": 72 },
+  "playerMk3":    { "image": "Ship art/MK 3 ship.png",      "size": 80, "optional": true },
   "enemyDragon":  { "image": "Ship art/Dragon Ship.png",    "size": 80 },
+  "semiBoss":     { "image": "Ship art/Scourge Semi-Boss.png",     "size": 260, "optional": true },
+  "finalBoss":    { "image": "Ship art/Harbinger - Final Boss.png", "size": 340, "optional": true },
   "weaponSmall":  { "image": "Ship art/MK 2 small gun.png", "size": 16 },
   "weaponLarge":  { "image": "Ship art/MK 2 large gun.png", "size": 22 },
   "weaponLaser":  { "image": "Ship art/MK 2 Laser.png",     "size": 28 },
