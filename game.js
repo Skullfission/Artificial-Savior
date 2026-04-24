@@ -466,6 +466,8 @@ const state = {
   spawnTimer: 0,
   t: 0,
   gameOver: false,
+  victory: false,
+  victoryStartT: 0,
   loaded: false,
   error: null,
   upgradeBanner: 0,
@@ -547,6 +549,8 @@ function reset() {
   state.score = 0;
   state.spawnTimer = 0;
   state.gameOver = false;
+  state.victory = false;
+  state.victoryStartT = 0;
   state.upgradeBanner = 0;
   state.toast = null;
   state.boss = null;
@@ -834,6 +838,18 @@ function killPlayer(p) {
   }
 }
 
+function triggerVictory() {
+  if (state.victory) return;
+  state.victory = true;
+  state.victoryStartT = state.t;
+  state.gameOver = true;
+  // Clear remaining hostile bullets so the victory cinematic isn't interrupted.
+  state.bullets = state.bullets.filter(b => b.friendly);
+  // Always offer initials entry on victory — the player earned it.
+  state.entry = { letters: ["A", "A", "A"], pos: 0, submitted: false, score: state.score };
+  audio.playSfx("explosion");
+}
+
 function bossBurst(e) {
   // Radial burst — punishes staying still.
   const n = 14;
@@ -1056,10 +1072,17 @@ const UNLOCK_LABEL = {
 
 function collectPickup(p, pk) {
   if (pk.type === "health") {
-    const heal = 2 + Math.floor(p.tier);
-    p.hp = Math.min(p.maxHp, p.hp + heal);
-    showToast(`+${heal} HP`, "#6bd68a");
-    burst(pk.x, pk.y, "#6bd68a", 18);
+    if (p.hp >= p.maxHp) {
+      // Health is already full — award a small point bonus instead.
+      state.score += 10;
+      showToast("+10 (HP FULL)", "#9fd1ff");
+      burst(pk.x, pk.y, "#9fd1ff", 14);
+    } else {
+      const heal = 2 + Math.floor(p.tier);
+      p.hp = Math.min(p.maxHp, p.hp + heal);
+      showToast(`+${heal} HP`, "#6bd68a");
+      burst(pk.x, pk.y, "#6bd68a", 18);
+    }
   } else if (pk.type === "boost") {
     p.damageBonus += 1;
     p.cooldownMul *= 0.92;
@@ -1074,11 +1097,10 @@ function collectPickup(p, pk) {
       showToast(info.text, info.color);
       burst(pk.x, pk.y, info.color, 24);
     } else {
-      // Already unlocked (edge case): treat as a boost instead.
-      p.damageBonus += 1;
-      p.cooldownMul *= 0.92;
-      showToast("WEAPON BOOST", "#ffd27a");
-      burst(pk.x, pk.y, "#ffd27a", 18);
+      // Same weapon type already unlocked — award a small point bonus.
+      state.score += 10;
+      showToast("+10 (DUPLICATE)", "#9fd1ff");
+      burst(pk.x, pk.y, "#9fd1ff", 14);
     }
   }
 }
@@ -1235,6 +1257,7 @@ function update(dt) {
               // Reward drops.
               const drops = finalB ? 10 : semi ? 6 : 3;
               for (let k = 0; k < drops; k++) spawnPickup(e.x + (Math.random() - 0.5) * 80, e.y + (Math.random() - 0.5) * 80, state.player.tier + (finalB ? 4 : semi ? 3 : 2));
+              if (finalB) triggerVictory();
             } else {
               burst(e.x, e.y, "#ffb26b", 24);
               audio.playSfx("enemyDie");
@@ -1629,10 +1652,9 @@ function render() {
   for (const e of state.enemies) {
     if (e.kind === "semi" || e.kind === "final") {
       if (e.img) {
-        // Draw the boss from its sprite (faces left, like other enemies).
+        // Custom boss art is authored facing left already — don't flip.
         ctx.save();
         ctx.translate(e.x, e.y);
-        ctx.scale(-1, 1);
         ctx.drawImage(e.img, -e.size / 2, -e.size / 2, e.size, e.size);
         ctx.restore();
       } else if (e.kind === "final") {
@@ -1772,12 +1794,16 @@ function render() {
   }
 
   if (state.gameOver) {
-    ctx.fillStyle = "#000b"; ctx.fillRect(0, 0, W, H);
-    ctx.textAlign = "center"; ctx.textBaseline = "middle";
-    ctx.fillStyle = "#fff";
-    ctx.font = "48px system-ui"; ctx.fillText("GAME OVER", W / 2, 110);
-    ctx.font = "20px system-ui"; ctx.fillStyle = "#cfd6ee";
-    ctx.fillText(`Score: ${state.score}`, W / 2, 150);
+    if (state.victory) {
+      drawVictoryScreen();
+    } else {
+      ctx.fillStyle = "#000b"; ctx.fillRect(0, 0, W, H);
+      ctx.textAlign = "center"; ctx.textBaseline = "middle";
+      ctx.fillStyle = "#fff";
+      ctx.font = "48px system-ui"; ctx.fillText("GAME OVER", W / 2, 110);
+      ctx.font = "20px system-ui"; ctx.fillStyle = "#cfd6ee";
+      ctx.fillText(`Score: ${state.score}`, W / 2, 150);
+    }
 
     if (state.entry && !state.entry.submitted) {
       const en = state.entry;
@@ -1859,6 +1885,109 @@ function drawLeaderboard(panelX, panelY, panelW, panelH) {
     ctx.fillText("(no scores yet)", panelX + panelW / 2, panelY + 72);
   }
   ctx.textAlign = "left"; ctx.textBaseline = "alphabetic";
+}
+
+function drawVictoryScreen() {
+  const vt = Math.max(0, state.t - state.victoryStartT);
+
+  // Deep space backdrop with a slow nebula tint.
+  const bg = ctx.createLinearGradient(0, 0, W, H);
+  bg.addColorStop(0, "#050817");
+  bg.addColorStop(0.5, "#0a0a2a");
+  bg.addColorStop(1, "#1a0830");
+  ctx.fillStyle = bg; ctx.fillRect(0, 0, W, H);
+
+  // Twinkling star field (deterministic positions via sin for a fancy parallax feel).
+  for (let i = 0; i < 140; i++) {
+    const sx = (i * 83.1 + vt * (10 + (i % 7) * 4)) % W;
+    const sy = (i * 47.3) % H;
+    const tw = 0.5 + 0.5 * Math.sin(vt * 2 + i);
+    ctx.fillStyle = `rgba(255,255,255,${0.25 + 0.55 * tw})`;
+    ctx.fillRect(W - sx, sy, 2, 2);
+  }
+
+  // Planet on the right — layered gradient + rim light + ring.
+  const planet = { x: W - 150, y: H / 2 + 80, r: 110 };
+  const p1 = ctx.createRadialGradient(planet.x - planet.r * 0.4, planet.y - planet.r * 0.4, planet.r * 0.1,
+                                       planet.x, planet.y, planet.r);
+  p1.addColorStop(0, "#6fa8ff");
+  p1.addColorStop(0.55, "#2e4da8");
+  p1.addColorStop(1, "#070a22");
+  ctx.fillStyle = p1;
+  ctx.beginPath(); ctx.arc(planet.x, planet.y, planet.r, 0, Math.PI * 2); ctx.fill();
+  // Rim glow.
+  ctx.save();
+  ctx.shadowColor = "#6fa8ff"; ctx.shadowBlur = 40;
+  ctx.strokeStyle = "rgba(160,200,255,0.55)"; ctx.lineWidth = 2;
+  ctx.beginPath(); ctx.arc(planet.x, planet.y, planet.r + 2, 0, Math.PI * 2); ctx.stroke();
+  ctx.restore();
+  // Tilted ring.
+  ctx.save();
+  ctx.translate(planet.x, planet.y);
+  ctx.rotate(-0.35);
+  ctx.scale(1, 0.22);
+  ctx.strokeStyle = "rgba(255,210,160,0.55)"; ctx.lineWidth = 4;
+  ctx.beginPath(); ctx.arc(0, 0, planet.r * 1.55, 0, Math.PI * 2); ctx.stroke();
+  ctx.strokeStyle = "rgba(255,210,160,0.25)"; ctx.lineWidth = 10;
+  ctx.beginPath(); ctx.arc(0, 0, planet.r * 1.55, 0, Math.PI * 2); ctx.stroke();
+  ctx.restore();
+
+  // MK3 ship flying from left toward the planet over ~6 seconds, then hovering.
+  const flightDur = 6;
+  const ease = (t) => 1 - Math.pow(1 - Math.min(1, t), 2); // easeOutQuad
+  const prog = ease(vt / flightDur);
+  const startX = -120, endX = planet.x - planet.r - 60;
+  const shipX = startX + (endX - startX) * prog;
+  const shipY = 200 + Math.sin(vt * 1.6) * 8;
+  const shipScale = 1.0 - prog * 0.22; // slight perspective shrink
+
+  // Engine exhaust trail.
+  const trailLen = 140 * (1 - prog * 0.6);
+  const grad = ctx.createLinearGradient(shipX - trailLen, shipY, shipX, shipY);
+  grad.addColorStop(0, "rgba(95,184,255,0)");
+  grad.addColorStop(1, "rgba(159,209,255,0.85)");
+  ctx.fillStyle = grad;
+  ctx.beginPath();
+  ctx.moveTo(shipX - trailLen, shipY - 6);
+  ctx.lineTo(shipX,             shipY - 10);
+  ctx.lineTo(shipX,             shipY + 10);
+  ctx.lineTo(shipX - trailLen, shipY + 6);
+  ctx.closePath(); ctx.fill();
+
+  // Ship sprite (prefer MK3, fallback MK2/MK1).
+  const shipSprite = (state.sprites && (state.sprites.playerMk3 && state.sprites.playerMk3.img ? state.sprites.playerMk3
+                                        : state.sprites.playerMk2 && state.sprites.playerMk2.img ? state.sprites.playerMk2
+                                        : state.sprites.player)) || null;
+  if (shipSprite && shipSprite.img) {
+    const sz = (shipSprite.size || 72) * 1.8 * shipScale;
+    ctx.save();
+    ctx.shadowColor = "#5fb8ff"; ctx.shadowBlur = 18;
+    ctx.drawImage(shipSprite.img, shipX - sz / 2, shipY - sz / 2, sz, sz);
+    ctx.restore();
+  }
+
+  // Title — big glow.
+  ctx.textAlign = "center"; ctx.textBaseline = "middle";
+  ctx.save();
+  ctx.shadowColor = "#5fb8ff"; ctx.shadowBlur = 32;
+  ctx.fillStyle = "#cfe6ff";
+  ctx.font = "bold 56px system-ui";
+  ctx.fillText("ARTIFICIAL SAVIOR", W / 2, 72);
+  ctx.restore();
+
+  // "MISSION ACCOMPLISHED" — pulsing glow, alternating warm/cool colors.
+  const pulse = 0.7 + 0.3 * Math.sin(vt * 2.4);
+  ctx.save();
+  ctx.shadowColor = "#ffd27a"; ctx.shadowBlur = 28 * pulse + 10;
+  ctx.fillStyle = `rgba(255, 220, 140, ${0.85 + 0.15 * pulse})`;
+  ctx.font = "bold 40px system-ui";
+  ctx.fillText("MISSION ACCOMPLISHED", W / 2, 128);
+  ctx.restore();
+
+  // Score line.
+  ctx.fillStyle = "#cfd6ee"; ctx.font = "20px system-ui";
+  ctx.fillText(`Final Score: ${state.score}`, W / 2, 166);
+  ctx.textBaseline = "alphabetic";
 }
 
 // ---------- Loop ----------
