@@ -16,6 +16,10 @@ const WEAPONS = {
 };
 const WEAPON_ORDER = ["small", "large", "laser", "missle"];
 
+const SHIELD_DURATION = 25;
+const FINAL_BOSS_SHIELD_MIN = 5000;
+const FINAL_BOSS_SHIELD_MAX = 10000;
+
 const UPGRADE_INTERVAL = 10000;
 const BOSS_SCORE_TRIGGER = 10000;
 const MK2_TIER = 5;
@@ -422,6 +426,7 @@ function makePlayer(sprites) {
     unlocked: { small: true, large: false, laser: false, missle: false },
     cd: 0,
     invuln: 0,
+    shieldT: 0,
     tier: 1,
     nextUpgrade: UPGRADE_INTERVAL,
     cooldownMul: 1,
@@ -673,6 +678,8 @@ function spawnFinalBoss() {
   };
   state.enemies.push(boss);
   state.boss = boss;
+  // Schedule the first shield drop some 5000–10000 HP into the fight.
+  boss.nextShieldHp = boss.hp - (FINAL_BOSS_SHIELD_MIN + Math.random() * (FINAL_BOSS_SHIELD_MAX - FINAL_BOSS_SHIELD_MIN));
   state.finalBossTriggered = true;
   state.upgradeBanner = 5.0;
   state.upgradeText = "!! FINAL BOSS — THE HARBINGER !!";
@@ -1047,6 +1054,10 @@ function spawnPickup(x, y, tier) {
     // All weapons unlocked => re-enable boost drops.
     pool.push({ type: "boost", weight: 1.4 });
   }
+  // Shields become available once the semi-boss fight has started.
+  if (state.semiBossTriggered || state.semiBossDefeated) {
+    pool.push({ type: "shield", weight: 0.7 });
+  }
   let total = 0;
   for (const e of pool) total += e.weight;
   let r = Math.random() * total;
@@ -1060,6 +1071,19 @@ function spawnPickup(x, y, tier) {
     type: chosen.type,
     weapon: chosen.weapon || null,
     life: 10,
+    bob: Math.random() * Math.PI * 2
+  });
+}
+
+function spawnShieldPickup(x, y) {
+  state.pickups.push({
+    x, y,
+    vx: -70 - Math.random() * 40,
+    vy: (Math.random() - 0.5) * 50,
+    size: 30,
+    type: "shield",
+    weapon: null,
+    life: 12,
     bob: Math.random() * Math.PI * 2
   });
 }
@@ -1088,6 +1112,11 @@ function collectPickup(p, pk) {
     p.cooldownMul *= 0.92;
     showToast("WEAPON BOOST", "#ffd27a");
     burst(pk.x, pk.y, "#ffd27a", 18);
+  } else if (pk.type === "shield") {
+    p.shieldT = SHIELD_DURATION;
+    showToast("SHIELD +25s", "#7fd6ff");
+    burst(pk.x, pk.y, "#7fd6ff", 24);
+    audio.playSfx && audio.playSfx("laser");
   } else if (pk.type && pk.type.startsWith("unlock-")) {
     const key = pk.weapon;
     if (key && !p.unlocked[key]) {
@@ -1157,6 +1186,7 @@ function update(dt) {
 
   fireWeapon(p, dt);
   if (p.invuln > 0) p.invuln -= dt;
+  if (p.shieldT > 0) p.shieldT -= dt;
 
   // Trigger the mini-boss once the threshold is crossed.
   if (!state.bossTriggered && !state.bossDefeated && state.score >= BOSS_SCORE_TRIGGER) {
@@ -1240,6 +1270,11 @@ function update(dt) {
         if (Math.abs(b.x - e.x) < e.size * 0.45 && Math.abs(b.y - e.y) < e.size * 0.45) {
           e.hp -= b.damage; b.life = 0;
           burst(b.x, b.y, b.color, 6);
+          // Final Boss sheds a shield pickup every 5000–10000 HP lost.
+          if (e.kind === "final" && e.hp > 0 && e.nextShieldHp !== undefined && e.hp <= e.nextShieldHp) {
+            spawnShieldPickup(e.x, e.y);
+            e.nextShieldHp -= FINAL_BOSS_SHIELD_MIN + Math.random() * (FINAL_BOSS_SHIELD_MAX - FINAL_BOSS_SHIELD_MIN);
+          }
           if (e.hp <= 0) {
             if (e.isBoss) {
               const semi = e.kind === "semi";
@@ -1271,10 +1306,16 @@ function update(dt) {
       }
     } else if (p.invuln <= 0) {
       if (Math.abs(b.x - p.x) < p.size * 0.4 && Math.abs(b.y - p.y) < p.size * 0.4) {
-        if (!state.godMode) p.hp -= b.damage;
-        b.life = 0; p.invuln = 0.8;
-        burst(p.x, p.y, "#ff5a5a", 16);
-        if (p.hp <= 0) killPlayer(p);
+        if (p.shieldT > 0) {
+          // Shield absorbs the hit.
+          b.life = 0; p.invuln = 0.2;
+          burst(p.x, p.y, "#7fd6ff", 14);
+        } else {
+          if (!state.godMode) p.hp -= b.damage;
+          b.life = 0; p.invuln = 0.8;
+          burst(p.x, p.y, "#ff5a5a", 16);
+          if (p.hp <= 0) killPlayer(p);
+        }
       }
     }
   }
@@ -1283,11 +1324,17 @@ function update(dt) {
     for (const e of state.enemies) {
       if (Math.abs(e.x - p.x) < (e.size + p.size) * 0.4 && Math.abs(e.y - p.y) < (e.size + p.size) * 0.4) {
         const dmg = e.isBoss ? (e.kind === "final" ? 10 : e.kind === "semi" ? 7 : 5) : 3;
-        if (!state.godMode) p.hp -= dmg;
-        p.invuln = 1.0;
-        if (!e.isBoss) { e.hp = 0; audio.playSfx("enemyDie"); }
-        burst((e.x + p.x) / 2, (e.y + p.y) / 2, "#ffb26b", 28);
-        if (p.hp <= 0) killPlayer(p);
+        if (p.shieldT > 0) {
+          p.invuln = 0.5;
+          if (!e.isBoss) { e.hp = 0; audio.playSfx("enemyDie"); }
+          burst((e.x + p.x) / 2, (e.y + p.y) / 2, "#7fd6ff", 24);
+        } else {
+          if (!state.godMode) p.hp -= dmg;
+          p.invuln = 1.0;
+          if (!e.isBoss) { e.hp = 0; audio.playSfx("enemyDie"); }
+          burst((e.x + p.x) / 2, (e.y + p.y) / 2, "#ffb26b", 28);
+          if (p.hp <= 0) killPlayer(p);
+        }
       }
     }
   }
@@ -1626,6 +1673,29 @@ function render() {
       ctx.fillStyle = "#0b1224";
       ctx.fillRect(-r * 0.55, -r * 0.18, r * 1.1, r * 0.36);
       ctx.fillRect(-r * 0.18, -r * 0.55, r * 0.36, r * 1.1);
+    } else if (pk.type === "shield") {
+      const r = pk.size * 0.55 * pulse;
+      ctx.save();
+      ctx.shadowColor = "#7fd6ff"; ctx.shadowBlur = 16;
+      ctx.strokeStyle = "#7fd6ff"; ctx.lineWidth = 3;
+      ctx.fillStyle = "rgba(30, 80, 140, 0.55)";
+      // Shield crest: rounded top, pointed bottom.
+      ctx.beginPath();
+      ctx.moveTo(-r, -r * 0.3);
+      ctx.quadraticCurveTo(-r, -r, 0, -r);
+      ctx.quadraticCurveTo(r, -r, r, -r * 0.3);
+      ctx.lineTo(r * 0.1, r);
+      ctx.lineTo(-r * 0.1, r);
+      ctx.closePath();
+      ctx.fill(); ctx.stroke();
+      ctx.restore();
+      // Inner chevron mark.
+      ctx.strokeStyle = "#cfeaff"; ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(-r * 0.4, -r * 0.1);
+      ctx.lineTo(0, r * 0.35);
+      ctx.lineTo(r * 0.4, -r * 0.1);
+      ctx.stroke();
     } else if (pk.type && pk.type.startsWith("unlock-") && pk.weapon) {
       const info = UNLOCK_LABEL[pk.weapon];
       // Glowing halo ring to flag it as an unlock drop.
@@ -1688,6 +1758,22 @@ function render() {
       drawSprite(p.img, p.x, p.y, p.size);
     }
   }
+  // Shield bubble around the player (flickers when about to expire).
+  if (p.shieldT > 0) {
+    const expiring = p.shieldT < 3;
+    const pulse = 0.55 + 0.45 * Math.sin(state.t * (expiring ? 14 : 5));
+    const alpha = expiring ? (0.3 + 0.6 * Math.max(0, p.shieldT / 3)) : 0.85;
+    ctx.save();
+    ctx.shadowColor = "#7fd6ff"; ctx.shadowBlur = 18;
+    ctx.strokeStyle = `rgba(127, 214, 255, ${alpha * pulse})`;
+    ctx.lineWidth = 3;
+    ctx.beginPath(); ctx.arc(p.x, p.y, p.size * 0.72, 0, Math.PI * 2); ctx.stroke();
+    ctx.strokeStyle = `rgba(200, 235, 255, ${alpha * 0.5})`;
+    ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.arc(p.x, p.y, p.size * 0.82, 0, Math.PI * 2); ctx.stroke();
+    ctx.restore();
+  }
+
   // God-mode shimmer halo.
   if (state.godMode) {
     ctx.save();
