@@ -10,7 +10,7 @@ const SPRITES_URL = "content/sprites.json";
 
 const WEAPONS = {
   small:  { sprite: "weaponSmall",  cooldown: 0.12, speed: 720, damage: 1,  size: 14, color: "#9fd1ff", label: "Small Gun" },
-  large:  { sprite: "weaponLarge",  cooldown: 0.35, speed: 600, damage: 3,  size: 22, color: "#ffd27a", label: "Large Gun" },
+  large:  { sprite: "weaponLarge",  cooldown: 0.35, speed: 600, damage: 6,  size: 22, color: "#ffd27a", label: "Large Gun" },
   laser:  { sprite: "weaponLaser",  cooldown: 0.06, speed: 980, damage: 1,  size: 26, color: "#ff6bd6", label: "Laser"     },
   missle: { sprite: "weaponMissle", cooldown: 0.55, speed: 520, damage: 5,  size: 22, color: "#ffb26b", label: "Missile"   }
 };
@@ -33,6 +33,122 @@ const FINAL_BOSS_SCORE_TRIGGER = 100000;
 const FINAL_BOSS_LEVEL_TRIGGER = 20;
 const FINAL_BOSS_HP = SEMIBOSS_HP * 2;
 const FINAL_BOSS_REWARD = 30000;
+
+// God Mode pickup — temporary 60s invulnerability via rare drop. Distinct from MICO cheat (permanent).
+const GODMODE_PICKUP_DURATION = 60.0;
+const GODMODE_PICKUP_WEIGHT = 0.5;
+
+// Mother Ship final boss (Level 2) — homing eye lasers + shockwave.
+const MOTHERSHIP_LASER_INTERVAL = 4.0;     // seconds between bursts
+const MOTHERSHIP_LASER_BURST_GAP = 0.18;   // seconds between the 2 beams from one eye
+const MOTHERSHIP_LASER_SPEED = 320;        // px/s
+const MOTHERSHIP_LASER_TURN_RATE = 2.4;    // rad/s — capped angular velocity
+const MOTHERSHIP_LASER_LIFE = 4.5;         // seconds before despawn
+const MOTHERSHIP_LASER_DAMAGE = 3;
+const MOTHERSHIP_LASER_RADIUS = 8;
+const MOTHERSHIP_SHOCKWAVE_INTERVAL = 7.0;
+const MOTHERSHIP_SHOCKWAVE_SPEED = 240;
+const MOTHERSHIP_SHOCKWAVE_MAX_R = 520;
+const MOTHERSHIP_SHOCKWAVE_THICKNESS = 22;
+const MOTHERSHIP_SHOCKWAVE_DAMAGE = 2;
+
+// Asteroids (L2, after Cube Mini-Boss is defeated).
+const ASTEROID_MEDIUM_HP = 5;
+const ASTEROID_SMALL_HP = 2;
+const ASTEROID_MEDIUM_SCORE = 200;
+const ASTEROID_SMALL_SCORE = 75;
+const ASTEROID_MEDIUM_DAMAGE = 3;
+const ASTEROID_SMALL_DAMAGE = 1;
+const ASTEROID_SPAWN_INTERVAL_MIN = 1.4;
+const ASTEROID_SPAWN_INTERVAL_MAX = 3.0;
+const ASTEROID_MEDIUM_RADIUS = 38;
+const ASTEROID_SMALL_RADIUS = 22;
+const ASTEROID_CONTACT_DAMAGE = 3;
+
+// Data-driven enemy kinds (L1 dragon + L2 orb). Used by spawnEnemy + enemyFire.
+const ENEMY_KINDS = {
+  dragon: {
+    sprite: "enemyDragon",
+    hp: 6,
+    speedMin: 90, speedMax: 180,
+    fireCdMin: 0.8, fireCdMax: 2.0,
+    scoreReward: 100,
+    hpPerTier: 100,
+    fireCdTierShrink: 0.06,
+    shotConfig: { color: "#ff5a5a", size: 12, speed: 380, damage: 1, life: 2.2, speedTierBonus: 12 }
+  },
+  orb: {
+    sprite: "enemyOrb",
+    hp: 4,
+    speedMin: 18, speedMax: 38,
+    speedTierBonus: 5,
+    fireCdMin: 1.6, fireCdMax: 3.2,
+    scoreReward: 200,
+    hpPerTier: 8,
+    fireCdTierShrink: 0.05,
+    shotConfig: { color: "#5fb8ff", size: 24, speed: 460, damage: 2, life: 2.4, speedTierBonus: 10 }
+  }
+};
+
+// Per-level config — each level supplies score thresholds, sprite keys, HP, labels, planet style, music key.
+const LEVELS = [
+  {
+    id: 1,
+    name: "Outer Approach",
+    bossScore: BOSS_SCORE_TRIGGER,
+    semiBossScore: SEMIBOSS_SCORE_TRIGGER,
+    finalBossScore: FINAL_BOSS_SCORE_TRIGGER,
+    finalBossLevelTier: FINAL_BOSS_LEVEL_TRIGGER,
+    bossSprite: "enemyDragon",   // L1 mini-boss is the dragon scaled up
+    bossSpriteScale: 2.6,
+    semiBossSprite: "semiBoss",
+    finalBossSprite: "finalBoss",
+    bossHp: BOSS_HP,
+    semiBossHp: SEMIBOSS_HP,
+    finalBossHp: FINAL_BOSS_HP,
+    bossLabel: "MINI-BOSS",
+    semiBossLabel: "SEMI-FINAL BOSS — THE SCOURGE",
+    finalBossLabel: "FINAL BOSS — THE HARBINGER",
+    bossIncomingText: "!! MINI-BOSS INCOMING !!",
+    semiBossIncomingText: "!! SEMI-FINAL BOSS — THE SCOURGE !!",
+    finalBossIncomingText: "!! FINAL BOSS — THE HARBINGER !!",
+    enemyKinds: ["dragon"],
+    asteroidsAfterMiniBoss: false,
+    planet: { sprite: "planetSprite", palette: ["#6fa8ff", "#2e4da8", "#070a22"], ringColor: "rgba(255,210,160,0.55)" },
+    outroPrompt: "CONTINUE",
+    nextLevel: 2,
+    music: "l1"
+  },
+  {
+    id: 2,
+    name: "Asteroid Belt",
+    bossScore: 12000,
+    semiBossScore: 50000,
+    finalBossScore: 100000,
+    finalBossLevelTier: 25,
+    bossSprite: "cubeBoss",
+    bossSpriteScale: 1.0,
+    semiBossSprite: "bluebird",
+    finalBossSprite: "motherShip",
+    bossHp: BOSS_HP * 2,
+    semiBossHp: Math.round(SEMIBOSS_HP * 1.5),
+    finalBossHp: SEMIBOSS_HP * 3,
+    bossLabel: "MINI-BOSS — THE CUBE",
+    semiBossLabel: "SEMI-FINAL BOSS — BLUEBIRD",
+    finalBossLabel: "FINAL BOSS — MOTHER SHIP",
+    bossIncomingText: "!! MINI-BOSS — THE CUBE !!",
+    semiBossIncomingText: "!! SEMI-FINAL BOSS — BLUEBIRD !!",
+    finalBossIncomingText: "!! FINAL BOSS — MOTHER SHIP !!",
+    enemyKinds: ["orb"],
+    asteroidsAfterMiniBoss: true,
+    planet: { sprite: null, palette: ["#ff9e6f", "#a83e2e", "#22070a"], ringColor: "rgba(160,210,255,0.55)" },
+    outroPrompt: "MISSION COMPLETE",
+    nextLevel: null,
+    music: "l2"
+  }
+];
+
+function getLevelByIdx(idx) { return LEVELS[Math.max(0, Math.min(LEVELS.length - 1, idx))]; }
 
 // ---------- Asset loader ----------
 
@@ -78,15 +194,29 @@ addEventListener("keydown", e => {
     return;
   }
 
-  // Pause-menu cheat-code entry intercepts alpha/num/nav keys but lets p/m/r through.
+  // Pause-menu cheat-code entry intercepts alpha/num/nav keys EXCEPT 'p' and 'x'
+  // so the user can always close the cheat entry / unpause / mute regardless.
   if (state.paused && state.cheatEntry) {
-    const isLetter = /^[a-z0-9]$/.test(k);
+    if (k === "escape") {
+      e.preventDefault();
+      state.cheatEntry = null;
+      return;
+    }
+    const isLetter = /^[a-z0-9]$/.test(k) && k !== "p" && k !== "x";
     const isNav = ["arrowleft", "arrowright", "arrowup", "arrowdown", "backspace", "enter"].includes(k);
     if (isLetter || isNav) {
       e.preventDefault();
       handleCheatEntryKey(e.key);
       return;
     }
+  }
+
+  // While paused with NO cheat entry open, Enter opens the cheat-code entry
+  // (mirrors clicking the on-screen CHEAT CODE button — desktop convenience).
+  if (state.paused && !state.cheatEntry && k === "enter") {
+    e.preventDefault();
+    openCheatEntry();
+    return;
   }
 
   // Title-screen cheat-code capture. Silent — not shown publicly.
@@ -107,7 +237,7 @@ addEventListener("keydown", e => {
   if (e.repeat) return void keys.add(k);
   keys.add(k);
   if ([" ", "arrowup", "arrowdown", "arrowleft", "arrowright"].includes(k)) e.preventDefault();
-  if (k === "m") audio.toggleMute();
+  if (k === "x") audio.toggleMute();
   if (k === "p") togglePause();
   audio.unlockAndPlay();
 });
@@ -120,12 +250,23 @@ function togglePause() {
   state.paused = !state.paused;
   if (state.paused) {
     audio.pauseMusic();
-    // Fresh 4-char cheat input each pause; cleared on resume.
-    state.cheatEntry = { letters: ["A", "A", "A", "A"], pos: 0 };
+    // Cheat entry is opt-in via the on-screen "CHEAT CODE" button so 'p' isn't eaten.
+    state.cheatEntry = null;
   } else {
     audio.resumeMusic();
     state.cheatEntry = null;
   }
+}
+
+// Pause-menu "CHEAT CODE" button geometry — clicking it opens the entry boxes.
+function cheatButtonRect() {
+  const w = 200, h = 36;
+  return { x: (W - w) / 2, y: 132, w, h };
+}
+
+function openCheatEntry() {
+  if (!state.paused) return;
+  state.cheatEntry = { letters: ["A", "A", "A", "A"], pos: 0 };
 }
 
 function handleEntryKey(key) {
@@ -133,7 +274,7 @@ function handleEntryKey(key) {
   if (!en || en.submitted) return;
   if (key === "Enter") {
     en.submitted = true;
-    submitHiscore(en.letters.join(""), en.score);
+    submitHiscore(en.letters.join(""), en.score, state.kills | 0);
     // Clear held-key state so the auto-restart doesn't trigger from an 'r' held before entry.
     keys.clear();
     return;
@@ -248,14 +389,29 @@ function handleCheatEntryKey(key) {
 // ---------- Audio ----------
 
 const audio = (() => {
-  const music = new Audio("audio/Artificial Savior.mp3");
-  music.loop = true;
-  music.preload = "auto";
-  music.volume = 0.55;
+  // Track registry — lazy-init Audio elements + MediaElementSource on first use.
+  // Each track stays connected to the analyser; only the playing one produces output.
+  const TRACKS = {
+    l1: { src: "audio/Artificial Savior.mp3", el: null, srcNode: null, available: true },
+    l2: { src: "audio/AS L2.mp3",             el: null, srcNode: null, available: true }
+  };
+  let activeKey = "l1";
   let muted = false;
   let started = false;
-  let available = true;
-  music.addEventListener("error", () => { available = false; });
+  const masterVolume = 0.55;
+  let crossfade = null; // { from, to, t, dur }
+
+  function ensureTrack(key) {
+    const tr = TRACKS[key];
+    if (!tr || tr.el) return tr;
+    const el = new Audio(tr.src);
+    el.loop = true;
+    el.preload = "auto";
+    el.volume = 0;
+    el.addEventListener("error", () => { tr.available = false; });
+    tr.el = el;
+    return tr;
+  }
 
   // Procedural SFX via Web Audio so we don't need any additional files.
   let actx = null;
@@ -411,27 +567,94 @@ const audio = (() => {
     o.start(); o.stop(now + 0.28);
   }
 
-  const SFX = { small: sfxSmall, large: sfxLarge, laser: sfxLaser, missle: sfxMissle, explosion: sfxExplosion, enemyShot: sfxEnemyShot, enemyDie: sfxEnemyDie };
+  function sfxNukeScream(ac) {
+    // Death-scream: starts as a sharp wail (~700 Hz), gargles down through the
+    // throat, then breaks into a wet rasp before fading. Lower in the mix than
+    // before so it doesn't trample the explosion+missile SFX.
+    const now = ac.currentTime;
+    const dur = 1.6;
 
-  // Analyser hookup for music-reactive visuals.
-  let source = null;
+    // Throat formant — resonant bandpass roughly tracking a vowel collapse.
+    const formant = ac.createBiquadFilter();
+    formant.type = "bandpass"; formant.Q.value = 8;
+    formant.frequency.setValueAtTime(900, now);
+    formant.frequency.exponentialRampToValueAtTime(260, now + dur);
+
+    // Master gain, sharp attack + long release for a dying tail. Halved versus prior version.
+    const gnMain = ac.createGain();
+    gnMain.gain.setValueAtTime(0.0001, now);
+    gnMain.gain.exponentialRampToValueAtTime(0.16, now + 0.04);
+    gnMain.gain.exponentialRampToValueAtTime(0.09, now + 0.55);
+    gnMain.gain.exponentialRampToValueAtTime(0.0001, now + dur);
+    formant.connect(gnMain).connect(ac.destination);
+
+    // Two voices: one sawtooth (vocal cord buzz), one square (chip-tune edge),
+    // both pitch-bending downward with a wider, slower vibrato for "agony".
+    const voices = [
+      { type: "sawtooth", f0: 720, f1: 95, det: 0 },
+      { type: "square",   f0: 706, f1: 90, det: 9 }
+    ];
+    for (const v of voices) {
+      const o = ac.createOscillator(); o.type = v.type;
+      o.frequency.setValueAtTime(v.f0 + v.det, now);
+      o.frequency.exponentialRampToValueAtTime(v.f1 + v.det, now + dur);
+      const lfo = ac.createOscillator(); lfo.type = "sine"; lfo.frequency.value = 4.2;
+      const lfoGain = ac.createGain(); lfoGain.gain.value = 28;
+      lfo.connect(lfoGain).connect(o.frequency);
+      o.connect(formant);
+      o.start(); o.stop(now + dur);
+      lfo.start(); lfo.stop(now + dur);
+    }
+
+    // Wet rasp: filtered noise with its own envelope that swells in the back half
+    // — gives the "death gurgle" before silence.
+    const src = ac.createBufferSource();
+    src.buffer = noiseBuffer(ac, dur);
+    const noiseBp = ac.createBiquadFilter();
+    noiseBp.type = "bandpass"; noiseBp.Q.value = 4;
+    noiseBp.frequency.setValueAtTime(1100, now);
+    noiseBp.frequency.exponentialRampToValueAtTime(220, now + dur);
+    const gnNoise = ac.createGain();
+    gnNoise.gain.setValueAtTime(0.0001, now);
+    gnNoise.gain.exponentialRampToValueAtTime(0.05, now + 0.15);
+    gnNoise.gain.exponentialRampToValueAtTime(0.09, now + 0.85);
+    gnNoise.gain.exponentialRampToValueAtTime(0.0001, now + dur);
+    src.connect(noiseBp).connect(gnNoise).connect(ac.destination);
+    src.start(); src.stop(now + dur);
+  }
+
+  const SFX = { small: sfxSmall, large: sfxLarge, laser: sfxLaser, missle: sfxMissle, explosion: sfxExplosion, enemyShot: sfxEnemyShot, enemyDie: sfxEnemyDie, nukeScream: sfxNukeScream };
+
+  // Analyser hookup for music-reactive visuals — both tracks share one analyser.
   let analyser = null;
   let freqData = null;
   const energy = { bass: 0, mid: 0, treble: 0, level: 0 };
   function ensureAnalyser() {
     const ac = ensureCtx();
-    if (!ac || source) return;
-    try {
-      source = ac.createMediaElementSource(music);
-      analyser = ac.createAnalyser();
-      analyser.fftSize = 512;
-      analyser.smoothingTimeConstant = 0.82;
-      freqData = new Uint8Array(analyser.frequencyBinCount);
-      // Route music through the analyser so we can read it while it still plays.
-      source.connect(analyser);
-      analyser.connect(ac.destination);
-    } catch (e) {
-      source = null; analyser = null; freqData = null;
+    if (!ac) return;
+    if (!analyser) {
+      try {
+        analyser = ac.createAnalyser();
+        analyser.fftSize = 512;
+        analyser.smoothingTimeConstant = 0.82;
+        freqData = new Uint8Array(analyser.frequencyBinCount);
+        analyser.connect(ac.destination);
+      } catch (e) {
+        analyser = null; freqData = null;
+        return;
+      }
+    }
+    // Hook up source nodes for any track that has been instantiated.
+    for (const key of Object.keys(TRACKS)) {
+      const tr = TRACKS[key];
+      if (tr.el && !tr.srcNode) {
+        try {
+          tr.srcNode = ac.createMediaElementSource(tr.el);
+          tr.srcNode.connect(analyser);
+        } catch (e) {
+          tr.srcNode = null;
+        }
+      }
     }
   }
   function sampleEnergy() {
@@ -455,25 +678,95 @@ const audio = (() => {
   return {
     unlockAndPlay() {
       ensureCtx();
+      ensureTrack(activeKey);
       ensureAnalyser();
-      if (!available || muted || started) return;
-      const p = music.play();
+      const tr = TRACKS[activeKey];
+      if (!tr || !tr.available || muted || started) return;
+      const p = tr.el.play();
+      const onStart = () => { started = true; tr.el.volume = masterVolume; };
       if (p && typeof p.then === "function") {
-        p.then(() => { started = true; }).catch(() => { /* retry on next input */ });
+        p.then(onStart).catch(() => { /* retry on next input */ });
       } else {
-        started = true;
+        onStart();
       }
     },
     toggleMute() {
       muted = !muted;
-      if (muted) { music.pause(); }
-      else { started = false; this.unlockAndPlay(); }
+      if (muted) {
+        for (const key of Object.keys(TRACKS)) {
+          const tr = TRACKS[key];
+          if (tr.el) tr.el.pause();
+        }
+      } else {
+        started = false; this.unlockAndPlay();
+      }
     },
-    pauseMusic() { if (!muted && started) music.pause(); },
+    pauseMusic() {
+      if (muted || !started) return;
+      for (const key of Object.keys(TRACKS)) {
+        const tr = TRACKS[key];
+        if (tr.el && !tr.el.paused) tr.el.pause();
+      }
+    },
     resumeMusic() {
       if (muted) return;
-      const p = music.play();
+      // Resume whatever was playing (active track + the other side of any crossfade).
+      const resumeOne = (key) => {
+        const tr = TRACKS[key];
+        if (!tr || !tr.el) return;
+        const p = tr.el.play();
+        if (p && typeof p.catch === "function") p.catch(() => {});
+      };
+      resumeOne(activeKey);
+      if (crossfade) resumeOne(crossfade.from);
+    },
+    crossfadeTo(key, dur) {
+      if (!TRACKS[key]) return;
+      if (typeof dur !== "number") dur = 1.5;
+      if (key === activeKey && !crossfade) return;
+      ensureCtx();
+      ensureTrack(key);
+      ensureAnalyser();
+      const fromKey = crossfade ? crossfade.to : activeKey;
+      if (key === fromKey) {
+        // Cancel any in-flight fade and just snap to the active track.
+        crossfade = null;
+        return;
+      }
+      const toTr = TRACKS[key];
+      if (muted || !toTr.available) {
+        // Defer — just record the new active track; unlockAndPlay will pick it up.
+        const fromTr = TRACKS[fromKey];
+        if (fromTr && fromTr.el) { fromTr.el.pause(); fromTr.el.currentTime = 0; fromTr.el.volume = 0; }
+        activeKey = key;
+        return;
+      }
+      // Start the new track at volume 0 and ramp via tickMusic.
+      try { toTr.el.currentTime = 0; } catch (e) { /* some browsers throw before metadata */ }
+      toTr.el.volume = 0;
+      const p = toTr.el.play();
       if (p && typeof p.catch === "function") p.catch(() => {});
+      crossfade = { from: fromKey, to: key, t: 0, dur };
+      // Mark started=true since at least one track is playing now.
+      started = true;
+    },
+    tickMusic(dt) {
+      if (!crossfade) return;
+      crossfade.t += dt;
+      const k = Math.max(0, Math.min(1, crossfade.t / crossfade.dur));
+      const fromTr = TRACKS[crossfade.from];
+      const toTr = TRACKS[crossfade.to];
+      if (fromTr && fromTr.el) fromTr.el.volume = masterVolume * (1 - k);
+      if (toTr && toTr.el) toTr.el.volume = masterVolume * k;
+      if (k >= 1) {
+        if (fromTr && fromTr.el) {
+          fromTr.el.pause();
+          try { fromTr.el.currentTime = 0; } catch (e) {}
+          fromTr.el.volume = 0;
+        }
+        activeKey = crossfade.to;
+        crossfade = null;
+      }
     },
     playSfx(kind) {
       if (muted) return;
@@ -484,8 +777,16 @@ const audio = (() => {
     },
     getEnergy() { return sampleEnergy(); },
     get muted() { return muted; },
-    get available() { return available; },
-    get started() { return started; }
+    get available() {
+      const tr = TRACKS[activeKey];
+      return !!(tr && tr.available);
+    },
+    get started() { return started; },
+    get activeKey() { return activeKey; },
+    get activeTrackPath() {
+      const tr = TRACKS[activeKey];
+      return tr ? tr.src : "";
+    }
   };
 })();
 
@@ -502,6 +803,10 @@ function makePlayer(sprites) {
     hp: 10, maxHp: 10,
     weapon: "small",
     unlocked: { small: true, large: false, laser: false, missle: false },
+    nukeAmmo: 0,
+    nukeBtnLatch: false,
+    energy: 100, maxEnergy: 100,
+    energyBonus: 0,
     cd: 0,
     invuln: 0,
     shieldT: 0,
@@ -509,22 +814,39 @@ function makePlayer(sprites) {
     nextUpgrade: UPGRADE_INTERVAL,
     cooldownMul: 1,
     damageBonus: 0,
-    speedMul: 1
+    speedMul: 1,
+    mk4Unlocked: false,
+    godPickupT: 0
   };
+}
+
+// Single source of truth for player sprite selection.
+// Priority: god mode (timer or MICO cheat) > mk4Unlocked > MK3 (tier) > MK2 (tier) > MK1.
+// Each step falls back to the next if its sprite is missing.
+function resolvePlayerSprite(p) {
+  if (!p || !state.sprites) return;
+  const pickIfReady = (key) => {
+    const s = state.sprites[key];
+    return s && s.img ? s : null;
+  };
+  let chosen = null;
+  if (p.godPickupT > 0 || state.godMode) chosen = pickIfReady("playerGod");
+  if (!chosen && p.mk4Unlocked)         chosen = pickIfReady("playerMk4");
+  if (!chosen && p.tier >= MK3_TIER)    chosen = pickIfReady("playerMk3");
+  if (!chosen && p.tier >= MK2_TIER)    chosen = pickIfReady("playerMk2");
+  if (!chosen)                          chosen = pickIfReady("player");
+  if (chosen) {
+    p.img = chosen.img;
+    p.size = chosen.size;
+  }
 }
 
 function levelUp(p) {
   p.tier += 1;
   p.nextUpgrade += UPGRADE_INTERVAL;
 
-  // Art tier swaps: MK 3 at tier >= MK3_TIER (if available), otherwise MK 2 at tier >= MK2_TIER.
-  const mk3 = state.sprites.playerMk3;
-  const mk2 = state.sprites.playerMk2;
-  if (p.tier >= MK3_TIER && mk3 && mk3.img) {
-    if (p.img !== mk3.img) { p.img = mk3.img; p.size = mk3.size; }
-  } else if (p.tier >= MK2_TIER && mk2 && mk2.img) {
-    if (p.img !== mk2.img) { p.img = mk2.img; p.size = mk2.size; }
-  }
+  resolvePlayerSprite(p);
+  refreshMaxEnergy(p);
 
   p.maxHp += 3;
   p.hp = Math.min(p.maxHp, p.hp + 4);
@@ -537,6 +859,23 @@ function levelUp(p) {
   burst(p.x, p.y, "#9fd1ff", 40);
 }
 
+// Energy capacity scales with the player's current MK tier. Bonus from boost
+// pickups (p.energyBonus) is additive on top of the tier base.
+//   MK1: 100, MK2: 250, MK3: 600, MK4: 1000.
+function maxEnergyBase(p) {
+  if (p.mk4Unlocked) return 1000;
+  if (p.tier >= MK3_TIER) return 600;
+  if (p.tier >= MK2_TIER) return 250;
+  return 100;
+}
+function refreshMaxEnergy(p) {
+  const newMax = maxEnergyBase(p) + (p.energyBonus || 0);
+  // Award the delta so a fresh upgrade feels like a recharge.
+  if (newMax > (p.maxEnergy || 0)) p.energy = (p.energy || 0) + (newMax - (p.maxEnergy || 0));
+  p.maxEnergy = newMax;
+  p.energy = Math.min(p.maxEnergy, p.energy);
+}
+
 const state = {
   sprites: null,
   player: null,
@@ -544,13 +883,26 @@ const state = {
   enemies: [],
   pickups: [],
   particles: [],
+  asteroids: [],
+  homingBeams: [],
+  bossShockwave: null,
   stars: [],
   score: 0,
+  kills: 0,
+  shake: 0,
+  shakeMag: 0,
+  outroDelay: 0,
+  // L2 electrical-storm: time until next lightning bolt + currently-visible bolt.
+  lightningCd: 0,
+  lightning: null,
   spawnTimer: 0,
+  asteroidSpawnTimer: 0,
   t: 0,
   gameOver: false,
   victory: false,
   victoryStartT: 0,
+  outro: false,
+  continueAvailable: false,
   loaded: false,
   error: null,
   upgradeBanner: 0,
@@ -563,6 +915,8 @@ const state = {
   semiBossDefeated: false,
   finalBossTriggered: false,
   finalBossDefeated: false,
+  cubeBossDefeated: false,
+  godPickupsThisLevel: 0,
   phase: "title",
   titleElapsed: 0,
   paused: false,
@@ -572,7 +926,10 @@ const state = {
   cheatBuffer: "",
   activeCheat: null,
   godMode: false,
-  cheatBanner: 0
+  cheatBanner: 0,
+  levelIdx: 0,
+  level: LEVELS[0],
+  levelStartScore: 0
 };
 
 // Secret cheat codes (entered on the title screen; not surfaced to the UI).
@@ -593,7 +950,7 @@ function loadHiscores() {
     if (!Array.isArray(arr)) return [];
     return arr
       .filter(r => r && typeof r.initials === "string" && typeof r.score === "number")
-      .map(r => ({ initials: r.initials.slice(0, 3).toUpperCase(), score: r.score | 0 }))
+      .map(r => ({ initials: r.initials.slice(0, 3).toUpperCase(), score: r.score | 0, kills: (typeof r.kills === "number" ? r.kills | 0 : 0) }))
       .sort((a, b) => b.score - a.score)
       .slice(0, HISCORE_MAX);
   } catch (e) { return []; }
@@ -609,9 +966,9 @@ function qualifiesForHiscore(score) {
   return score > state.hiscores[state.hiscores.length - 1].score;
 }
 
-function submitHiscore(initials, score) {
+function submitHiscore(initials, score, kills) {
   const clean = (initials || "").toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 3).padEnd(3, "A");
-  state.hiscores.push({ initials: clean, score });
+  state.hiscores.push({ initials: clean, score, kills: (kills | 0) });
   state.hiscores.sort((a, b) => b.score - a.score);
   state.hiscores = state.hiscores.slice(0, HISCORE_MAX);
   saveHiscores(state.hiscores);
@@ -630,11 +987,20 @@ function reset() {
   state.enemies = [];
   state.pickups = [];
   state.particles = [];
+  state.asteroids = [];
+  state.homingBeams = [];
+  state.bossShockwave = null;
   state.score = 0;
+  state.kills = 0;
+  state.shake = 0;
+  state.outroDelay = 0;
   state.spawnTimer = 0;
+  state.asteroidSpawnTimer = 0;
   state.gameOver = false;
   state.victory = false;
   state.victoryStartT = 0;
+  state.outro = false;
+  state.continueAvailable = false;
   state.upgradeBanner = 0;
   state.toast = null;
   state.boss = null;
@@ -644,9 +1010,62 @@ function reset() {
   state.semiBossDefeated = false;
   state.finalBossTriggered = false;
   state.finalBossDefeated = false;
+  state.cubeBossDefeated = false;
+  state.godPickupsThisLevel = 0;
   state.entry = null;
   state.godMode = false;
+  state.levelIdx = 0;
+  state.level = LEVELS[0];
+  state.levelStartScore = 0;
   applyCheat(state.player);
+  resolvePlayerSprite(state.player);
+  // Retry from L2 returns to L1 music with a short fade.
+  if (audio && audio.crossfadeTo) audio.crossfadeTo("l1", 0.5);
+}
+
+// Carry the player across to the next level. Preserves score, weapons, tier, hp,
+// shield, cheats, godMode, and the active God Mode pickup timer. Resets per-level
+// flags + spawn collections + boss state. Triggers the music crossfade.
+function advanceLevel() {
+  const next = LEVELS.find(l => l.id === state.level.nextLevel);
+  if (!next) return;
+  state.levelIdx = LEVELS.indexOf(next);
+  state.level = next;
+  state.levelStartScore = state.score;
+  state.bullets = [];
+  state.enemies = [];
+  state.pickups = [];
+  state.particles = [];
+  state.asteroids = [];
+  state.homingBeams = [];
+  state.bossShockwave = null;
+  state.boss = null;
+  state.bossTriggered = false;
+  state.bossDefeated = false;
+  state.semiBossTriggered = false;
+  state.semiBossDefeated = false;
+  state.finalBossTriggered = false;
+  state.finalBossDefeated = false;
+  state.cubeBossDefeated = false;
+  state.godPickupsThisLevel = 0;
+  state.outro = false;
+  state.victory = false;
+  state.continueAvailable = false;
+  state.gameOver = false;
+  state.entry = null;
+  state.spawnTimer = 0;
+  state.asteroidSpawnTimer = 0;
+  // Story-driven MK4 unlock.
+  state.player.mk4Unlocked = true;
+  resolvePlayerSprite(state.player);
+  refreshMaxEnergy(state.player);
+  // Re-place the player on the left edge so the new level reads as a fresh start.
+  state.player.x = 120;
+  state.player.y = H / 2;
+  state.player.invuln = 1.2;
+  state.upgradeBanner = 4.0;
+  state.upgradeText = `LEVEL ${next.id} — ${next.name.toUpperCase()}`;
+  if (audio && audio.crossfadeTo) audio.crossfadeTo(next.music, 1.5);
 }
 
 function applyCheat(p) {
@@ -663,14 +1082,12 @@ function applyCheat(p) {
       p.cooldownMul = Math.pow(0.9, levels);
       p.damageBonus = levels;
       p.nextUpgrade = UPGRADE_INTERVAL * (levels + 1);
-      const mk3c = state.sprites.playerMk3;
-      const mk2c = state.sprites.playerMk2;
-      if (p.tier >= MK3_TIER && mk3c && mk3c.img) {
-        p.img = mk3c.img; p.size = mk3c.size;
-      } else if (p.tier >= MK2_TIER && mk2c && mk2c.img) {
-        p.img = mk2c.img; p.size = mk2c.size;
-      }
+      // Cheat-driven MK4 unlock.
+      p.mk4Unlocked = true;
+      resolvePlayerSprite(p);
+      refreshMaxEnergy(p);
       unlockAll();
+      p.nukeAmmo = NUKE_MAX;
       p.weapon = "laser";
       state.upgradeBanner = 2.5;
       state.upgradeText = `MK ${p.tier} ONLINE`;
@@ -679,7 +1096,9 @@ function applyCheat(p) {
     case "MICO": {
       state.godMode = true;
       unlockAll();
+      p.nukeAmmo = NUKE_MAX;
       p.weapon = "laser";
+      resolvePlayerSprite(p);
       state.upgradeBanner = 2.5;
       state.upgradeText = "GOD MODE ENGAGED";
       break;
@@ -688,18 +1107,22 @@ function applyCheat(p) {
 }
 
 function spawnBoss() {
-  const s = state.sprites.enemyDragon;
+  const lvl = state.level;
+  const sprite = state.sprites[lvl.bossSprite] || state.sprites.enemyDragon;
+  const baseSize = sprite ? sprite.size : 80;
+  const size = baseSize * (lvl.bossSpriteScale || 1);
   const boss = {
     x: W + 160, y: H / 2,
     vx: -90, vy: 0,
     baseY: H / 2,
-    size: s.size * 2.6,
-    img: s.img,
-    hp: BOSS_HP, maxHp: BOSS_HP,
+    size,
+    img: sprite ? sprite.img : null,
+    hp: lvl.bossHp, maxHp: lvl.bossHp,
     fireCd: 1.2,
     burstCd: 3.0,
     isBoss: true,
     kind: "mini",
+    label: lvl.bossLabel,
     entering: true,
     phase: 0,
     t: 0
@@ -708,11 +1131,12 @@ function spawnBoss() {
   state.boss = boss;
   state.bossTriggered = true;
   state.upgradeBanner = 3.5;
-  state.upgradeText = "!! MINI-BOSS INCOMING !!";
+  state.upgradeText = lvl.bossIncomingText || "!! MINI-BOSS INCOMING !!";
 }
 
 function spawnSemiBoss() {
-  const sprite = state.sprites.semiBoss;
+  const lvl = state.level;
+  const sprite = state.sprites[lvl.semiBossSprite];
   const hasImg = !!(sprite && sprite.img);
   const boss = {
     x: W + 220, y: H / 2,
@@ -720,11 +1144,12 @@ function spawnSemiBoss() {
     baseY: H / 2,
     size: hasImg ? sprite.size : 260,
     img: hasImg ? sprite.img : null,
-    hp: SEMIBOSS_HP, maxHp: SEMIBOSS_HP,
+    hp: lvl.semiBossHp, maxHp: lvl.semiBossHp,
     fireCd: 1.4,
     burstCd: 3.5,
     isBoss: true,
     kind: "semi",
+    label: lvl.semiBossLabel,
     entering: true,
     phase: 0,
     t: 0
@@ -733,35 +1158,48 @@ function spawnSemiBoss() {
   state.boss = boss;
   state.semiBossTriggered = true;
   state.upgradeBanner = 4.5;
-  state.upgradeText = "!! SEMI-FINAL BOSS — THE SCOURGE !!";
+  state.upgradeText = lvl.semiBossIncomingText || "!! SEMI-FINAL BOSS !!";
 }
 
 function spawnFinalBoss() {
   // The final boss — larger, tougher, and far more aggressive than the semi-final.
-  const sprite = state.sprites.finalBoss;
+  const lvl = state.level;
+  const sprite = state.sprites[lvl.finalBossSprite];
   const hasImg = !!(sprite && sprite.img);
+  const isMotherShip = lvl.finalBossSprite === "motherShip";
   const boss = {
     x: W + 260, y: H / 2,
     vx: -130, vy: 0,
     baseY: H / 2,
     size: hasImg ? sprite.size : 320,
     img: hasImg ? sprite.img : null,
-    hp: FINAL_BOSS_HP, maxHp: FINAL_BOSS_HP,
+    hp: lvl.finalBossHp, maxHp: lvl.finalBossHp,
     fireCd: 0.8,
     burstCd: 2.2,
     isBoss: true,
     kind: "final",
+    label: lvl.finalBossLabel,
     entering: true,
     phase: 0,
-    t: 0
+    t: 0,
+    finalBossSprite: lvl.finalBossSprite,    // "finalBoss" (Harbinger) or "motherShip"
+    isMotherShip,
+    motherShipBurstT: MOTHERSHIP_LASER_INTERVAL * 0.75, // first burst ~3s after entry
+    motherShipShockT: MOTHERSHIP_SHOCKWAVE_INTERVAL * 0.6,
+    motherShipBurstQueue: 0,
+    motherShipBurstGapT: 0,
+    motherShipAnchorX: W * 0.72,
+    motherShipAnchorY: H * 0.5
   };
   state.enemies.push(boss);
   state.boss = boss;
-  // Schedule the first shield drop some 5000–10000 HP into the fight.
-  boss.nextShieldHp = boss.hp - (FINAL_BOSS_SHIELD_MIN + Math.random() * (FINAL_BOSS_SHIELD_MAX - FINAL_BOSS_SHIELD_MIN));
+  // Shield-drop schedule only applies to Harbinger (carry over original behaviour).
+  if (!isMotherShip) {
+    boss.nextShieldHp = boss.hp - (FINAL_BOSS_SHIELD_MIN + Math.random() * (FINAL_BOSS_SHIELD_MAX - FINAL_BOSS_SHIELD_MIN));
+  }
   state.finalBossTriggered = true;
   state.upgradeBanner = 5.0;
-  state.upgradeText = "!! FINAL BOSS — THE HARBINGER !!";
+  state.upgradeText = lvl.finalBossIncomingText || "!! FINAL BOSS !!";
 }
 
 function bossFire(e) {
@@ -924,17 +1362,29 @@ function killPlayer(p) {
   }
 }
 
-function triggerVictory() {
-  if (state.victory) return;
+function triggerLevelOutro() {
+  if (state.outro) return;
+  state.outro = true;
   state.victory = true;
   state.victoryStartT = state.t;
   state.gameOver = true;
-  // Clear remaining hostile bullets so the victory cinematic isn't interrupted.
+  state.continueAvailable = !!state.level.nextLevel;
+  // 4.5-second hold so the music crossfade can land and the player can read
+  // the "level complete" beat before any input advances the level.
+  state.outroDelay = state.continueAvailable ? 4.5 : 0;
+  // Clear remaining hostile bullets / homing beams / shockwave so the cinematic isn't interrupted.
   state.bullets = state.bullets.filter(b => b.friendly);
-  // Always offer initials entry on victory — the player earned it.
-  state.entry = { letters: ["A", "A", "A"], pos: 0, submitted: false, score: state.score };
+  state.homingBeams = [];
+  state.bossShockwave = null;
+  // Initials entry only on the FINAL level (no nextLevel).
+  if (!state.continueAvailable) {
+    state.entry = { letters: ["A", "A", "A"], pos: 0, submitted: false, score: state.score };
+  }
   audio.playSfx("explosion");
 }
+
+// Backwards-compat alias — older call sites referenced triggerVictory().
+const triggerVictory = triggerLevelOutro;
 
 function bossBurst(e) {
   // Radial burst — punishes staying still.
@@ -1055,55 +1505,362 @@ function finalBossBurst(e) {
 // ---------- Systems ----------
 
 function fireWeapon(p, dt) {
+  // Edge-triggered nuke on weapon-4 / "missle" key. Fires alongside the primary
+  // weapon (does not switch p.weapon). Consumes 1 of up to NUKE_MAX charges.
+  const nukeHeld = keys.has("4");
+  if (nukeHeld && !p.nukeBtnLatch) {
+    p.nukeBtnLatch = true;
+    const godActiveNow = state.godMode || (p.godPickupT > 0);
+    if (p.unlocked.missle && (godActiveNow || (p.nukeAmmo || 0) > 0)) {
+      // GOD MODE bypasses ammo consumption entirely.
+      if (!godActiveNow) p.nukeAmmo -= 1;
+      detonateNuke(p, WEAPONS.missle);
+    } else if (!state._nukeEmptyToast || state.toast == null) {
+      showToast(p.unlocked.missle ? "NO NUKES" : "NUKE LOCKED", "#ff6b6b");
+      state._nukeEmptyToast = true;
+    }
+  } else if (!nukeHeld) {
+    p.nukeBtnLatch = false;
+    state._nukeEmptyToast = false;
+  }
+
   p.cd -= dt;
-  if (!keys.has(" ") || p.cd > 0) return;
-  const w = WEAPONS[p.weapon];
+  // Player primary weapon never fires the nuke; guard against stale state.
+  const weaponKey = (p.weapon === "missle") ? "small" : p.weapon;
+  const isLaser = weaponKey === "laser";
+  const wantFire = keys.has(" ");
+
+  // Laser drains energy while held; regenerates otherwise. God Mode (permanent
+  // MICO cheat or active GOD MODE pickup timer) bypasses drain entirely.
+  const godActive = state.godMode || (p.godPickupT > 0);
+  if (isLaser && wantFire && p.energy > 0 && !godActive) {
+    p.energy = Math.max(0, p.energy - LASER_DRAIN * dt);
+  } else {
+    p.energy = Math.min(p.maxEnergy, (p.energy || 0) + LASER_REGEN * dt);
+  }
+
+  if (!wantFire || p.cd > 0) return;
+  if (isLaser && !godActive) {
+    if (p._laserOut) {
+      // Currently locked out — wait for the bar to refill past the min threshold.
+      if (p.energy < LASER_MIN_ENERGY) return;
+      p._laserOut = false;
+    }
+    if (p.energy <= 0) { p._laserOut = true; return; }
+  } else if (godActive) {
+    p._laserOut = false;
+  }
+
+  const w = WEAPONS[weaponKey];
   p.cd = w.cooldown * (p.cooldownMul || 1);
   state.bullets.push({
     x: p.x + p.size * 0.5, y: p.y,
     vx: w.speed, vy: 0,
     size: w.size, damage: w.damage + (p.damageBonus || 0),
     color: w.color,
-    weapon: p.weapon,
+    weapon: weaponKey,
     img: null,
     life: 1.6,
     friendly: true
   });
-  audio.playSfx(p.weapon);
+  audio.playSfx(weaponKey);
+}
+
+// Boss-death pipeline — applies score, flags, drops, victory trigger.
+// Used both by the regular bullet-vs-boss path and by detonateNuke.
+function killBoss(e) {
+  const semi = e.kind === "semi";
+  const finalB = e.kind === "final";
+  const bursts = finalB ? 14 : semi ? 10 : 6;
+  const burstColor = finalB ? "#ffb040" : semi ? "#ff3a3a" : "#ff9a3a";
+  for (let k = 0; k < bursts; k++) burst(e.x + (Math.random() - 0.5) * e.size * 0.8, e.y + (Math.random() - 0.5) * e.size * 0.8, burstColor, 40);
+  state.score += finalB ? FINAL_BOSS_REWARD : semi ? SEMIBOSS_REWARD : BOSS_REWARD;
+  if (finalB) state.finalBossDefeated = true;
+  else if (semi) state.semiBossDefeated = true;
+  else {
+    state.bossDefeated = true;
+    if (state.level && state.level.id === 2) state.cubeBossDefeated = true;
+  }
+  state.boss = null;
+  if (finalB) { state.homingBeams = []; state.bossShockwave = null; }
+  state.upgradeBanner = 4.0;
+  state.upgradeText = finalB ? "FINAL BOSS DEFEATED" : semi ? "SEMI-FINAL BOSS DEFEATED" : "BOSS DEFEATED";
+  const drops = finalB ? 10 : semi ? 6 : 3;
+  for (let k = 0; k < drops; k++) spawnPickup(e.x + (Math.random() - 0.5) * 80, e.y + (Math.random() - 0.5) * 80, state.player.tier + (finalB ? 4 : semi ? 3 : 2));
+  while (state.score >= state.player.nextUpgrade) levelUp(state.player);
+  if (finalB) triggerVictory();
+}
+
+const NUKE_MAX = 3;
+const LASER_DRAIN = 35;       // energy units per second while firing
+const LASER_REGEN = 22;       // energy units per second while not firing
+const LASER_MIN_ENERGY = 20;  // must refill to this much before laser can resume after empty
+
+// Nuke: clears all non-boss enemies/asteroids/enemy bullets and chunks boss HP.
+function detonateNuke(p, w) {
+  // Boss takes a fraction of max HP (1/4 mini, 1/8 semi/final). If HP reaches 0,
+  // run the boss-death pipeline so victory/level-progression triggers fire.
+  if (state.boss && state.boss.hp > 0) {
+    const b = state.boss;
+    const frac = b.kind === "mini" ? (w.miniBossFrac || 0.25)
+              : b.kind === "final" ? (w.finalBossFrac || 0.125)
+              : (w.semiBossFrac || 0.125);
+    const dmg = Math.max(1, Math.ceil((b.maxHp || b.hp) * frac));
+    b.hp = Math.max(0, b.hp - dmg);
+    burst(b.x, b.y, "#fff7d6", 60);
+    burst(b.x, b.y, "#ffb26b", 50);
+    if (b.hp <= 0) killBoss(b);
+  }
+  // Vaporise every non-boss enemy on screen, awarding half score + counting kills.
+  let killed = 0;
+  for (const e of state.enemies) {
+    if (e.isBoss || e.hp <= 0) continue;
+    burst(e.x, e.y, "#ffb26b", 24);
+    burst(e.x, e.y, "#fff7d6", 12);
+    state.score += (e.scoreReward || 100) >> 1;
+    state.kills = (state.kills || 0) + 1;
+    e.hp = 0;
+    killed++;
+  }
+  // Asteroids: nuke obliterates them all (medium does NOT split into smalls).
+  for (const a of state.asteroids) {
+    if (a.hp <= 0) continue;
+    burst(a.x, a.y, "#e0c89a", 18);
+    burst(a.x, a.y, "#ffb26b", 10);
+    a.hp = 0;
+  }
+  state.bullets = state.bullets.filter(b => b.friendly);
+  // Screen shake + flash only — no fireball at the player ship (it visually
+  // looked like the player exploded).
+  state.nukeFlash = 0.9;
+  state.shake = Math.max(state.shake || 0, 0.7);
+  state.shakeMag = 14;
+  audio.playSfx("explosion");
+  audio.playSfx("missle");
+  // Delayed 16-bit scream once the wave dies — only if any ship was destroyed.
+  if (killed > 0) {
+    setTimeout(() => audio.playSfx && audio.playSfx("nukeScream"), 380);
+  }
 }
 
 function spawnEnemy() {
-  const s = state.sprites.enemyDragon;
+  const lvl = state.level;
+  const kindKey = lvl.enemyKinds[Math.floor(Math.random() * lvl.enemyKinds.length)] || "dragon";
+  const kind = ENEMY_KINDS[kindKey] || ENEMY_KINDS.dragon;
+  const sprite = state.sprites[kind.sprite] || state.sprites.enemyDragon;
   const y = 60 + Math.random() * (H - 120);
-  // Enemies scale with player tier: +100 HP per tier, plus faster movement,
-  // quicker firing, and harder bullets so overall difficulty tracks progression.
+  // Enemies scale with player tier: +HP per tier, faster movement, quicker firing, harder bullets.
   const tier = (state.player && state.player.tier) || 1;
   const tierBonus = tier - 1;
+  const speed = kind.speedMin + Math.random() * (kind.speedMax - kind.speedMin) + tierBonus * (kind.speedTierBonus != null ? kind.speedTierBonus : 18);
+  const fireCd = Math.max(0.25, kind.fireCdMin + Math.random() * (kind.fireCdMax - kind.fireCdMin) - tierBonus * kind.fireCdTierShrink);
   state.enemies.push({
     x: W + 80, y,
-    vx: -(90 + Math.random() * 90 + tierBonus * 18),
+    vx: -speed,
     vy: 0,
     baseY: y,
-    size: s.size,
-    img: s.img,
-    hp: 6 + tierBonus * 100,
-    fireCd: Math.max(0.25, (0.8 + Math.random() * 1.2) - tierBonus * 0.06),
-    tier
+    size: sprite.size,
+    img: sprite.img,
+    hp: kind.hp + tierBonus * kind.hpPerTier,
+    fireCd,
+    tier,
+    enemyKind: kindKey,
+    shotConfig: kind.shotConfig,
+    scoreReward: kind.scoreReward
   });
 }
 
 function enemyFire(e) {
   const extra = Math.max(0, ((e.tier || 1) - 1));
+  const sc = e.shotConfig || ENEMY_KINDS.dragon.shotConfig;
   state.bullets.push({
     x: e.x - e.size * 0.4, y: e.y,
-    vx: -(380 + extra * 12), vy: 0,
-    size: 12, damage: 1 + Math.floor(extra / 5),
-    color: "#ff5a5a",
+    vx: -(sc.speed + extra * (sc.speedTierBonus || 0)), vy: 0,
+    size: sc.size, damage: sc.damage + Math.floor(extra / 5),
+    color: sc.color,
     img: null,
-    life: 2.2,
+    life: sc.life,
     friendly: false
   });
   audio.playSfx("enemyShot");
+}
+
+// ---------- Asteroids (Level 2, after Cube Mini-Boss is defeated) ----------
+
+function spawnAsteroid(kindOverride, x, y) {
+  const isMedium = kindOverride === "small" ? false : (kindOverride === "medium" ? true : Math.random() < 0.7);
+  const kind = isMedium ? "medium" : "small";
+  const sprite = isMedium ? state.sprites.asteroidMedium : state.sprites.asteroidSmall;
+  const baseSize = sprite ? sprite.size : (isMedium ? 96 : 56);
+  const px = (typeof x === "number") ? x : W + 60;
+  const py = (typeof y === "number") ? y : 60 + Math.random() * (H - 120);
+  state.asteroids.push({
+    x: px, y: py,
+    vx: -(35 + Math.random() * 50),
+    vy: (Math.random() - 0.5) * 40,
+    size: baseSize,
+    kind,
+    hp: isMedium ? ASTEROID_MEDIUM_HP : ASTEROID_SMALL_HP,
+    rot: Math.random() * Math.PI * 2,
+    spin: (Math.random() - 0.5) * 1.0,
+    img: sprite ? sprite.img : null
+  });
+}
+
+function destroyAsteroid(a, fromShot) {
+  if (a.kind === "medium") {
+    // Split into 2-3 small fragments that fly outward.
+    const n = 2 + Math.floor(Math.random() * 2);
+    for (let i = 0; i < n; i++) {
+      const ang = Math.random() * Math.PI * 2;
+      const sp = 80 + Math.random() * 80;
+      const child = {
+        x: a.x, y: a.y,
+        vx: Math.cos(ang) * sp - 40,
+        vy: Math.sin(ang) * sp,
+        size: (state.sprites.asteroidSmall ? state.sprites.asteroidSmall.size : 56),
+        kind: "small",
+        hp: ASTEROID_SMALL_HP,
+        rot: Math.random() * Math.PI * 2,
+        spin: (Math.random() - 0.5) * 2.0,
+        img: state.sprites.asteroidSmall ? state.sprites.asteroidSmall.img : null
+      };
+      state.asteroids.push(child);
+    }
+    burst(a.x, a.y, "#c9a777", 16);
+    audio.playSfx("enemyDie");
+    if (fromShot) state.score += ASTEROID_MEDIUM_SCORE;
+  } else {
+    // Small explodes in a small shrapnel burst.
+    burst(a.x, a.y, "#e0c89a", 22);
+    burst(a.x, a.y, "#ffb26b", 12);
+    audio.playSfx("enemyDie");
+    if (fromShot) state.score += ASTEROID_SMALL_SCORE;
+  }
+  a.hp = 0;
+}
+
+// ---------- Mother Ship (Level 2 final) — homing eye lasers + shockwave ----------
+
+function motherShipEyeOrigins(e) {
+  // Eyes are roughly upper-third of the sprite. Offsets are sprite-relative,
+  // scaled by sprite size relative to the authored 360px reference.
+  const k = e.size / 360;
+  return [
+    { x: e.x + (-38) * k, y: e.y + (-120) * k },
+    { x: e.x + ( 38) * k, y: e.y + (-120) * k }
+  ];
+}
+
+function motherShipFireBeam(e, origin) {
+  const p = state.player;
+  const dx = (p.x - origin.x), dy = (p.y - origin.y);
+  const ang = Math.atan2(dy, dx);
+  state.homingBeams.push({
+    x: origin.x, y: origin.y,
+    vx: Math.cos(ang) * MOTHERSHIP_LASER_SPEED,
+    vy: Math.sin(ang) * MOTHERSHIP_LASER_SPEED,
+    speed: MOTHERSHIP_LASER_SPEED,
+    turnRate: MOTHERSHIP_LASER_TURN_RATE,
+    damage: MOTHERSHIP_LASER_DAMAGE,
+    life: MOTHERSHIP_LASER_LIFE,
+    radius: MOTHERSHIP_LASER_RADIUS,
+    trail: []
+  });
+  // Brief muzzle flash at the eye.
+  burst(origin.x, origin.y, "#bfe4ff", 6);
+}
+
+function motherShipFireBurst(e) {
+  // Pair of bursts: each eye fires 2 beams MOTHERSHIP_LASER_BURST_GAP apart.
+  // Set up a queue that the per-frame update consumes via burstGapT.
+  e.motherShipBurstQueue = 2;
+  e.motherShipBurstGapT = 0;
+  // Fire the first pair immediately.
+  const eyes = motherShipEyeOrigins(e);
+  for (const eye of eyes) motherShipFireBeam(e, eye);
+  e.motherShipBurstQueue -= 1;
+  e.motherShipBurstGapT = MOTHERSHIP_LASER_BURST_GAP;
+  audio.playSfx("enemyShot");
+}
+
+function motherShipFireShockwave(e) {
+  state.bossShockwave = {
+    cx: e.x, cy: e.y,
+    r: 20,
+    maxR: MOTHERSHIP_SHOCKWAVE_MAX_R,
+    speed: MOTHERSHIP_SHOCKWAVE_SPEED,
+    thickness: MOTHERSHIP_SHOCKWAVE_THICKNESS,
+    damage: MOTHERSHIP_SHOCKWAVE_DAMAGE,
+    hit: false
+  };
+  audio.playSfx("explosion");
+}
+
+function updateHomingBeams(dt) {
+  const p = state.player;
+  for (const beam of state.homingBeams) {
+    // True homing: rotate heading toward player with capped angular velocity.
+    const desired = Math.atan2(p.y - beam.y, p.x - beam.x);
+    const cur = Math.atan2(beam.vy, beam.vx);
+    let delta = desired - cur;
+    while (delta > Math.PI) delta -= Math.PI * 2;
+    while (delta < -Math.PI) delta += Math.PI * 2;
+    const maxDelta = beam.turnRate * dt;
+    if (delta > maxDelta) delta = maxDelta;
+    else if (delta < -maxDelta) delta = -maxDelta;
+    const newAng = cur + delta;
+    beam.vx = Math.cos(newAng) * beam.speed;
+    beam.vy = Math.sin(newAng) * beam.speed;
+    beam.x += beam.vx * dt;
+    beam.y += beam.vy * dt;
+    beam.life -= dt;
+    beam.trail.push({ x: beam.x, y: beam.y });
+    if (beam.trail.length > 14) beam.trail.shift();
+    // Player collision (respects shield + invuln + godmode timer).
+    if (p.invuln <= 0) {
+      const dx = p.x - beam.x, dy = p.y - beam.y;
+      if (dx * dx + dy * dy < (beam.radius + p.size * 0.35) * (beam.radius + p.size * 0.35)) {
+        if (p.shieldT > 0) {
+          p.invuln = 0.4;
+          burst(p.x, p.y, "#7fd6ff", 14);
+        } else {
+          if (!state.godMode && p.godPickupT <= 0) p.hp -= beam.damage;
+          p.invuln = 0.8;
+          burst(p.x, p.y, "#5fb8ff", 18);
+          if (p.hp <= 0) killPlayer(p);
+        }
+        beam.life = 0;
+      }
+    }
+  }
+  state.homingBeams = state.homingBeams.filter(b => b.life > 0 && b.x > -50 && b.x < W + 50 && b.y > -50 && b.y < H + 50);
+}
+
+function updateShockwave(dt) {
+  const sw = state.bossShockwave;
+  if (!sw) return;
+  sw.r += sw.speed * dt;
+  if (sw.r >= sw.maxR) { state.bossShockwave = null; return; }
+  if (!sw.hit) {
+    const p = state.player;
+    const dx = p.x - sw.cx, dy = p.y - sw.cy;
+    const d = Math.hypot(dx, dy);
+    if (d >= sw.r - sw.thickness && d <= sw.r + sw.thickness) {
+      if (p.invuln <= 0) {
+        if (p.shieldT > 0) {
+          p.invuln = 0.4;
+          burst(p.x, p.y, "#7fd6ff", 18);
+        } else {
+          if (!state.godMode && p.godPickupT <= 0) p.hp -= sw.damage;
+          p.invuln = 0.9;
+          burst(p.x, p.y, "#ffb26b", 22);
+          if (p.hp <= 0) killPlayer(p);
+        }
+        sw.hit = true;
+      }
+    }
+  }
 }
 
 function showToast(text, color) {
@@ -1136,6 +1893,11 @@ function spawnPickup(x, y, tier) {
   // Shields become available once the semi-boss fight has started.
   if (state.semiBossTriggered || state.semiBossDefeated) {
     pool.push({ type: "shield", weight: 0.7 });
+  }
+  // God Mode — very rare, post-mini-boss only, max 2 grants per level
+  // (and never while the permanent MICO god mode or the active timer is on).
+  if (!state.godMode && state.bossDefeated && (state.godPickupsThisLevel || 0) < 2 && p.godPickupT <= 0) {
+    pool.push({ type: "godmode", weight: GODMODE_PICKUP_WEIGHT });
   }
   let total = 0;
   for (const e of pool) total += e.weight;
@@ -1170,7 +1932,7 @@ function spawnShieldPickup(x, y) {
 const UNLOCK_LABEL = {
   large:  { text: "LARGE GUN UNLOCKED", color: "#ffd27a", sprite: "weaponLarge"  },
   laser:  { text: "LASER UNLOCKED",     color: "#ff6bd6", sprite: "weaponLaser"  },
-  missle: { text: "MISSILE UNLOCKED",   color: "#ffb26b", sprite: "weaponMissle" }
+  missle: { text: "NUKE UNLOCKED",      color: "#ffb26b", sprite: "weaponMissle" }
 };
 
 function collectPickup(p, pk) {
@@ -1189,16 +1951,39 @@ function collectPickup(p, pk) {
   } else if (pk.type === "boost") {
     p.damageBonus += 1;
     p.cooldownMul *= 0.92;
-    showToast("WEAPON BOOST", "#ffd27a");
+    p.energyBonus = (p.energyBonus || 0) + 25;
+    refreshMaxEnergy(p);
+    showToast("WEAPON BOOST  +25 ENERGY", "#ffd27a");
     burst(pk.x, pk.y, "#ffd27a", 18);
   } else if (pk.type === "shield") {
     p.shieldT = SHIELD_DURATION;
     showToast("SHIELD +25s", "#7fd6ff");
     burst(pk.x, pk.y, "#7fd6ff", 24);
     audio.playSfx && audio.playSfx("laser");
+  } else if (pk.type === "godmode") {
+    p.godPickupT = GODMODE_PICKUP_DURATION;
+    state.godPickupsThisLevel = (state.godPickupsThisLevel || 0) + 1;
+    resolvePlayerSprite(p);
+    showToast(`GOD MODE — ${GODMODE_PICKUP_DURATION | 0}s`, "#ffd84a");
+    burst(pk.x, pk.y, "#ffd84a", 36);
+    audio.playSfx && audio.playSfx("explosion");
   } else if (pk.type && pk.type.startsWith("unlock-")) {
     const key = pk.weapon;
-    if (key && !p.unlocked[key]) {
+    if (key === "missle") {
+      // Nukes are an ammo-based stockpile (max 3). First pickup also flags it as unlocked.
+      const before = p.nukeAmmo || 0;
+      if (before >= NUKE_MAX) {
+        state.score += 10;
+        showToast("+10 (NUKES FULL)", "#9fd1ff");
+        burst(pk.x, pk.y, "#9fd1ff", 14);
+      } else {
+        p.unlocked.missle = true;
+        p.nukeAmmo = before + 1;
+        const info = UNLOCK_LABEL[key] || { text: "NUKE +1", color: "#ffb26b" };
+        showToast(`NUKE +1  (${p.nukeAmmo}/${NUKE_MAX})`, info.color);
+        burst(pk.x, pk.y, info.color, 24);
+      }
+    } else if (key && !p.unlocked[key]) {
       p.unlocked[key] = true;
       p.weapon = key; // Auto-equip the newly unlocked weapon.
       const info = UNLOCK_LABEL[key] || { text: key.toUpperCase() + " UNLOCKED", color: "#fff" };
@@ -1215,6 +2000,10 @@ function collectPickup(p, pk) {
 
 function update(dt) {
   state.t += dt;
+  state.lastDt = dt;
+
+  // Music crossfade ramps regardless of phase / pause so transitions feel smooth.
+  if (audio && audio.tickMusic) audio.tickMusic(dt);
 
   for (const s of state.stars) {
     s.x -= s.z * 60 * dt;
@@ -1234,12 +2023,23 @@ function update(dt) {
   }
 
   if (state.gameOver) {
+    // Tick down the post-victory hold so screens & music can settle.
+    if (state.outroDelay > 0) state.outroDelay = Math.max(0, state.outroDelay - dt);
+    if (state.shake > 0) state.shake = Math.max(0, state.shake - dt);
     if (keys.has("r") && (!state.entry || state.entry.submitted)) reset();
+    // Mid-progression CONTINUE: outro screen of an intermediate level — Enter/Space jumps to next level
+    // (only after the post-victory hold elapses).
+    if (state.outro && state.continueAvailable && state.outroDelay <= 0 && (keys.has("enter") || keys.has(" "))) {
+      advanceLevel();
+    }
     return;
   }
 
   const p = state.player;
 
+  // Screen-shake decay (nuke etc.) — runs during active play. Decay rate ensures
+  // the shake never lasts more than ~3 seconds even if re-triggered.
+  if (state.shake > 0) state.shake = Math.max(0, state.shake - dt);
   const ax = (keys.has("arrowright") || keys.has("d") ? 1 : 0) - (keys.has("arrowleft") || keys.has("a") ? 1 : 0);
   const ay = (keys.has("arrowdown")  || keys.has("s") ? 1 : 0) - (keys.has("arrowup")   || keys.has("w") ? 1 : 0);
   const len = Math.hypot(ax, ay) || 1;
@@ -1251,6 +2051,9 @@ function update(dt) {
   for (let i = 0; i < WEAPON_ORDER.length; i++) {
     if (keys.has(String(i + 1))) {
       const key = WEAPON_ORDER[i];
+      // Slot 4 (nuke) is handled in fireWeapon as an edge-triggered ammo action;
+      // never set it as the primary weapon.
+      if (key === "missle") continue;
       if (p.unlocked[key]) {
         p.weapon = key;
       } else {
@@ -1266,18 +2069,24 @@ function update(dt) {
   fireWeapon(p, dt);
   if (p.invuln > 0) p.invuln -= dt;
   if (p.shieldT > 0) p.shieldT -= dt;
+  // God-mode pickup countdown (separate from the permanent MICO cheat).
+  if (p.godPickupT > 0) {
+    p.godPickupT = Math.max(0, p.godPickupT - dt);
+    if (p.godPickupT === 0) resolvePlayerSprite(p);
+  }
 
-  // Trigger the mini-boss once the threshold is crossed.
-  if (!state.bossTriggered && !state.bossDefeated && state.score >= BOSS_SCORE_TRIGGER) {
+  // Trigger the mini-boss once the threshold is crossed (delta from level start).
+  const lvlScore = state.score - state.levelStartScore;
+  if (!state.bossTriggered && !state.bossDefeated && lvlScore >= state.level.bossScore) {
     spawnBoss();
   }
   // Trigger the semi-final boss once the threshold is crossed (and no other boss is active).
-  if (!state.semiBossTriggered && !state.semiBossDefeated && !state.boss && state.score >= SEMIBOSS_SCORE_TRIGGER) {
+  if (!state.semiBossTriggered && !state.semiBossDefeated && !state.boss && lvlScore >= state.level.semiBossScore) {
     spawnSemiBoss();
   }
-  // Trigger the FINAL boss at 100k points OR player level 20 (whichever comes first).
+  // Trigger the FINAL boss at the per-level threshold OR player tier crossing the level's tier trigger.
   if (!state.finalBossTriggered && !state.finalBossDefeated && !state.boss &&
-      (state.score >= FINAL_BOSS_SCORE_TRIGGER || state.player.tier >= FINAL_BOSS_LEVEL_TRIGGER)) {
+      (lvlScore >= state.level.finalBossScore || state.player.tier >= state.level.finalBossLevelTier)) {
     spawnFinalBoss();
   }
 
@@ -1290,15 +2099,37 @@ function update(dt) {
     }
   }
 
+  // Asteroids (L2): start spawning after the Cube Mini-Boss is defeated.
+  if (state.level && state.level.asteroidsAfterMiniBoss && state.cubeBossDefeated && !state.outro) {
+    state.asteroidSpawnTimer -= dt;
+    if (state.asteroidSpawnTimer <= 0) {
+      spawnAsteroid();
+      state.asteroidSpawnTimer = ASTEROID_SPAWN_INTERVAL_MIN +
+        Math.random() * (ASTEROID_SPAWN_INTERVAL_MAX - ASTEROID_SPAWN_INTERVAL_MIN);
+    }
+  }
+  // Move + tumble asteroids; despawn off the left edge.
+  for (const a of state.asteroids) {
+    a.x += a.vx * dt;
+    a.y += a.vy * dt;
+    a.rot += a.spin * dt;
+  }
+
   for (const e of state.enemies) {
     if (e.isBoss) {
       e.t += dt;
       const semi = e.kind === "semi";
       const finalB = e.kind === "final";
+      const isMs = finalB && e.isMotherShip;
       // Slide in from the right, then hover and track player Y.
       if (e.entering) {
         e.x += e.vx * dt;
-        if (e.x <= W - e.size * 0.55) { e.x = W - e.size * 0.55; e.entering = false; e.vx = 0; }
+        const stopX = isMs ? e.motherShipAnchorX : (W - e.size * 0.55);
+        if (e.x <= stopX) { e.x = stopX; e.entering = false; e.vx = 0; }
+      } else if (isMs) {
+        // Mother Ship: stationary anchor with subtle idle bob; no chasing/lunge.
+        e.x = e.motherShipAnchorX;
+        e.y = e.motherShipAnchorY + Math.sin(e.t * 0.9) * 18;
       } else {
         const trackSpeed = finalB ? 320 : semi ? 220 : 140;
         const dy = state.player.y - e.y;
@@ -1309,25 +2140,49 @@ function update(dt) {
         e.y += e.vy * dt;
         e.y = Math.max(e.size / 2, Math.min(H - e.size / 2, e.y));
       }
-      e.fireCd -= dt;
-      e.burstCd -= dt;
-      if (!e.entering && e.fireCd <= 0) {
-        if (finalB) finalBossFire(e);
-        else if (semi) semiBossFire(e);
-        else bossFire(e);
-        // Fire rate intensifies as HP drops.
-        const rage = 1 - Math.max(0, e.hp) / e.maxHp;
-        e.fireCd = finalB ? Math.max(0.12, 0.5 - rage * 0.4)
-                 : semi   ? Math.max(0.18, 0.7 - rage * 0.5)
-                          : Math.max(0.25, 0.9 - rage * 0.6);
-      }
-      if (!e.entering && e.burstCd <= 0) {
-        if (finalB) finalBossBurst(e);
-        else if (semi) semiBossBurst(e);
-        else bossBurst(e);
-        e.burstCd = finalB ? (1.6 - (1 - e.hp / e.maxHp) * 1.0)
-                  : semi   ? (2.4 - (1 - e.hp / e.maxHp) * 1.2)
-                           : (3.4 - (1 - e.hp / e.maxHp) * 1.4);
+      if (isMs) {
+        // Homing eye-laser bursts (4 beams: 2 per eye, gap-spaced).
+        e.motherShipBurstT -= dt;
+        if (e.motherShipBurstT <= 0 && !e.entering) {
+          motherShipFireBurst(e);
+          e.motherShipBurstT = MOTHERSHIP_LASER_INTERVAL;
+        }
+        if (e.motherShipBurstQueue > 0) {
+          e.motherShipBurstGapT -= dt;
+          if (e.motherShipBurstGapT <= 0) {
+            const eyes = motherShipEyeOrigins(e);
+            for (const eye of eyes) motherShipFireBeam(e, eye);
+            e.motherShipBurstQueue -= 1;
+            e.motherShipBurstGapT = MOTHERSHIP_LASER_BURST_GAP;
+          }
+        }
+        // Shockwave ring on its own cadence.
+        e.motherShipShockT -= dt;
+        if (e.motherShipShockT <= 0 && !e.entering && !state.bossShockwave) {
+          motherShipFireShockwave(e);
+          e.motherShipShockT = MOTHERSHIP_SHOCKWAVE_INTERVAL;
+        }
+      } else {
+        e.fireCd -= dt;
+        e.burstCd -= dt;
+        if (!e.entering && e.fireCd <= 0) {
+          if (finalB) finalBossFire(e);
+          else if (semi) semiBossFire(e);
+          else bossFire(e);
+          // Fire rate intensifies as HP drops.
+          const rage = 1 - Math.max(0, e.hp) / e.maxHp;
+          e.fireCd = finalB ? Math.max(0.12, 0.5 - rage * 0.4)
+                   : semi   ? Math.max(0.18, 0.7 - rage * 0.5)
+                            : Math.max(0.25, 0.9 - rage * 0.6);
+        }
+        if (!e.entering && e.burstCd <= 0) {
+          if (finalB) finalBossBurst(e);
+          else if (semi) semiBossBurst(e);
+          else bossBurst(e);
+          e.burstCd = finalB ? (1.6 - (1 - e.hp / e.maxHp) * 1.0)
+                    : semi   ? (2.4 - (1 - e.hp / e.maxHp) * 1.2)
+                             : (3.4 - (1 - e.hp / e.maxHp) * 1.4);
+        }
       }
     } else {
       e.x += e.vx * dt;
@@ -1356,26 +2211,12 @@ function update(dt) {
           }
           if (e.hp <= 0) {
             if (e.isBoss) {
-              const semi = e.kind === "semi";
-              const finalB = e.kind === "final";
-              const bursts = finalB ? 14 : semi ? 10 : 6;
-              const burstColor = finalB ? "#ffb040" : semi ? "#ff3a3a" : "#ff9a3a";
-              for (let k = 0; k < bursts; k++) burst(e.x + (Math.random() - 0.5) * e.size * 0.8, e.y + (Math.random() - 0.5) * e.size * 0.8, burstColor, 40);
-              state.score += finalB ? FINAL_BOSS_REWARD : semi ? SEMIBOSS_REWARD : BOSS_REWARD;
-              if (finalB) state.finalBossDefeated = true;
-              else if (semi) state.semiBossDefeated = true;
-              else state.bossDefeated = true;
-              state.boss = null;
-              state.upgradeBanner = 4.0;
-              state.upgradeText = finalB ? "FINAL BOSS DEFEATED" : semi ? "SEMI-FINAL BOSS DEFEATED" : "BOSS DEFEATED";
-              // Reward drops.
-              const drops = finalB ? 10 : semi ? 6 : 3;
-              for (let k = 0; k < drops; k++) spawnPickup(e.x + (Math.random() - 0.5) * 80, e.y + (Math.random() - 0.5) * 80, state.player.tier + (finalB ? 4 : semi ? 3 : 2));
-              if (finalB) triggerVictory();
+              killBoss(e);
             } else {
               burst(e.x, e.y, "#ffb26b", 24);
               audio.playSfx("enemyDie");
-              state.score += 100;
+              state.score += (e.scoreReward || 100);
+              state.kills = (state.kills || 0) + 1;
               const dropChance = 0.15 + Math.min(0.25, (state.player.tier - 1) * 0.04);
               if (Math.random() < dropChance) spawnPickup(e.x, e.y, state.player.tier);
             }
@@ -1390,7 +2231,7 @@ function update(dt) {
           b.life = 0; p.invuln = 0.2;
           burst(p.x, p.y, "#7fd6ff", 14);
         } else {
-          if (!state.godMode) p.hp -= b.damage;
+          if (!state.godMode && p.godPickupT <= 0) p.hp -= b.damage;
           b.life = 0; p.invuln = 0.8;
           burst(p.x, p.y, "#ff5a5a", 16);
           if (p.hp <= 0) killPlayer(p);
@@ -1405,12 +2246,12 @@ function update(dt) {
         const dmg = e.isBoss ? (e.kind === "final" ? 10 : e.kind === "semi" ? 7 : 5) : 3;
         if (p.shieldT > 0) {
           p.invuln = 0.5;
-          if (!e.isBoss) { e.hp = 0; audio.playSfx("enemyDie"); }
+          if (!e.isBoss) { e.hp = 0; audio.playSfx("enemyDie"); state.kills = (state.kills || 0) + 1; }
           burst((e.x + p.x) / 2, (e.y + p.y) / 2, "#7fd6ff", 24);
         } else {
-          if (!state.godMode) p.hp -= dmg;
+          if (!state.godMode && p.godPickupT <= 0) p.hp -= dmg;
           p.invuln = 1.0;
-          if (!e.isBoss) { e.hp = 0; audio.playSfx("enemyDie"); }
+          if (!e.isBoss) { e.hp = 0; audio.playSfx("enemyDie"); state.kills = (state.kills || 0) + 1; }
           burst((e.x + p.x) / 2, (e.y + p.y) / 2, "#ffb26b", 28);
           if (p.hp <= 0) killPlayer(p);
         }
@@ -1419,6 +2260,48 @@ function update(dt) {
   }
 
   state.bullets = state.bullets.filter(b => b.life > 0 && b.x > -40 && b.x < W + 40);
+
+  // Asteroids vs friendly bullets (medium splits → smalls; small explodes).
+  for (const b of state.bullets) {
+    if (!b.friendly) continue;
+    for (const a of state.asteroids) {
+      if (a.hp <= 0) continue;
+      const r = (a.kind === "medium" ? ASTEROID_MEDIUM_RADIUS : ASTEROID_SMALL_RADIUS) + b.size * 0.3;
+      const dx = b.x - a.x, dy = b.y - a.y;
+      if (dx * dx + dy * dy < r * r) {
+        a.hp -= b.damage;
+        b.life = 0;
+        burst(b.x, b.y, "#d8b87a", 6);
+        if (a.hp <= 0) destroyAsteroid(a, true);
+        break;
+      }
+    }
+  }
+  // Asteroids vs player hull (asteroid is consumed; player takes contact damage).
+  if (p.invuln <= 0) {
+    for (const a of state.asteroids) {
+      if (a.hp <= 0) continue;
+      const r = (a.kind === "medium" ? ASTEROID_MEDIUM_RADIUS : ASTEROID_SMALL_RADIUS) + p.size * 0.4;
+      const dx = a.x - p.x, dy = a.y - p.y;
+      if (dx * dx + dy * dy < r * r) {
+        if (p.shieldT > 0) {
+          p.invuln = 0.5;
+          burst((a.x + p.x) / 2, (a.y + p.y) / 2, "#7fd6ff", 22);
+        } else {
+          if (!state.godMode && p.godPickupT <= 0) p.hp -= ASTEROID_CONTACT_DAMAGE;
+          p.invuln = 0.9;
+          burst((a.x + p.x) / 2, (a.y + p.y) / 2, "#ffb26b", 24);
+          if (p.hp <= 0) killPlayer(p);
+        }
+        destroyAsteroid(a, false);
+      }
+    }
+  }
+  state.asteroids = state.asteroids.filter(a => a.hp > 0 && a.x > -120 && a.x < W + 200);
+
+  // Mother Ship homing beams + shockwave.
+  updateHomingBeams(dt);
+  updateShockwave(dt);
 
   for (const pt of state.particles) {
     pt.x += pt.vx * dt; pt.y += pt.vy * dt;
@@ -1549,20 +2432,35 @@ function renderTitle() {
     ctx.restore();
   }
 
-  // Title "Artificial Savior" with neon-glow double-draw.
+  // Title — banner sprite if available, otherwise the original neon-glow text.
   ctx.textAlign = "center"; ctx.textBaseline = "middle";
   const tx = W / 2, ty = H * 0.42;
   const bob = Math.sin(t * 1.6) * 3;
 
-  ctx.save();
-  ctx.shadowColor = "#5fb8ff"; ctx.shadowBlur = 40;
-  ctx.fillStyle = "#9fd1ff";
-  ctx.font = "bold 92px system-ui";
-  ctx.fillText("Artificial Savior", tx, ty + bob);
-  ctx.shadowBlur = 14;
-  ctx.fillStyle = "#ffffff";
-  ctx.fillText("Artificial Savior", tx, ty + bob);
-  ctx.restore();
+  const banner = state.sprites && state.sprites.titleBanner;
+  if (banner && banner.img) {
+    // 2× the natural-fit size for a much bolder presence on the title screen.
+    const fitW = W * 0.7;
+    const fitH = H * 0.45;
+    const baseScale = Math.min(fitW / banner.img.width, fitH / banner.img.height);
+    const scale = baseScale * 2;
+    const bw = banner.img.width * scale;
+    const bh = banner.img.height * scale;
+    ctx.save();
+    ctx.shadowColor = "#5fb8ff"; ctx.shadowBlur = 36;
+    ctx.drawImage(banner.img, (W - bw) / 2, H * -0.06 + bob, bw, bh);
+    ctx.restore();
+  } else {
+    ctx.save();
+    ctx.shadowColor = "#5fb8ff"; ctx.shadowBlur = 40;
+    ctx.fillStyle = "#9fd1ff";
+    ctx.font = "bold 92px system-ui";
+    ctx.fillText("Artificial Savior", tx, ty + bob);
+    ctx.shadowBlur = 14;
+    ctx.fillStyle = "#ffffff";
+    ctx.fillText("Artificial Savior", tx, ty + bob);
+    ctx.restore();
+  }
 
   // Credit line.
   ctx.save();
@@ -1585,7 +2483,7 @@ function renderTitle() {
   if (!audio.available) {
     const remaining = Math.max(0, TITLE_DURATION - state.titleElapsed);
     ctx.fillStyle = "#ff8a8a";
-    ctx.fillText(`(audio/Artificial Savior.mp3 missing — starting in ${Math.ceil(remaining)}s)`, tx, H - 80);
+    ctx.fillText(`(${audio.activeTrackPath || "audio/Artificial Savior.mp3"} missing — starting in ${Math.ceil(remaining)}s)`, tx, H - 80);
   } else if (!audio.started) {
     const pulse = 0.6 + Math.abs(Math.sin(t * 3)) * 0.4;
     ctx.globalAlpha = pulse;
@@ -1600,7 +2498,7 @@ function renderTitle() {
 
   // Controls reminder.
   ctx.fillStyle = "#8d95ad"; ctx.font = "13px system-ui";
-  ctx.fillText("WASD / Arrows to move   ·   Space to fire   ·   1-4 weapons   ·   P pause   ·   M mute", tx, H - 46);
+  ctx.fillText("WASD / Arrows to move   ·   Space to fire   ·   1-4 weapons   ·   P pause   ·   X mute", tx, H - 46);
 
   // Brief cheat confirmation flash (never reveals the code list).
   if (state.cheatBanner > 0 && state.activeCheat) {
@@ -1650,6 +2548,12 @@ function renderBackground() {
   // Sample music energy (bass/mid/treble/level). Falls back to zeros before music starts.
   const e = audio.getEnergy ? audio.getEnergy() : { bass: 0, mid: 0, treble: 0, level: 0 };
   const t = state.t;
+
+  // L2 swaps the cosmic nebula for an electrical-storm backdrop.
+  if (state.level && state.level.id === 2) {
+    renderStormBackground(e, t);
+    return;
+  }
 
   // Base hue drifts slowly; bass pushes it warmer, treble nudges it cooler.
   const baseHue = (220 + t * 6 + e.bass * 60 - e.treble * 30) % 360;
@@ -1711,6 +2615,139 @@ function renderBackground() {
   }
 }
 
+// L2 electrical-storm backdrop. Heavy purple/teal cloud gradient + drifting
+// lightning bolts that flash the screen, plus rain streaks and a faint glow.
+function renderStormBackground(e, t) {
+  // Cloud gradient (rolling thunderhead).
+  const sky = ctx.createLinearGradient(0, 0, 0, H);
+  sky.addColorStop(0,    "#0a0816");
+  sky.addColorStop(0.45, "#1c1338");
+  sky.addColorStop(0.75, "#241844");
+  sky.addColorStop(1,    "#080612");
+  ctx.fillStyle = sky;
+  ctx.fillRect(0, 0, W, H);
+
+  // Drifting cloud lobes — translucent plum + teal blobs that morph slowly.
+  const baseHue = (260 + Math.sin(t * 0.07) * 20) % 360;
+  const lobes = [
+    { x: W * (0.25 + Math.sin(t * 0.11) * 0.06), y: H * 0.30, r: W * 0.45, hue: baseHue,           a: 0.18 + e.bass * 0.18 },
+    { x: W * (0.70 + Math.cos(t * 0.09) * 0.07), y: H * 0.55, r: W * 0.50, hue: (baseHue + 40)%360, a: 0.14 + e.mid  * 0.18 },
+    { x: W * (0.50 + Math.sin(t * 0.05) * 0.05), y: H * 0.80, r: W * 0.55, hue: (baseHue + 80)%360, a: 0.12 + e.level * 0.15 }
+  ];
+  ctx.save();
+  ctx.globalCompositeOperation = "lighter";
+  for (const lo of lobes) {
+    const g = ctx.createRadialGradient(lo.x, lo.y, 20, lo.x, lo.y, lo.r);
+    g.addColorStop(0,   `hsla(${lo.hue}, 65%, 30%, ${lo.a})`);
+    g.addColorStop(0.6, `hsla(${lo.hue}, 55%, 18%, ${lo.a * 0.5})`);
+    g.addColorStop(1,   "hsla(0,0%,0%,0)");
+    ctx.fillStyle = g;
+    ctx.fillRect(0, 0, W, H);
+  }
+  ctx.restore();
+
+  // Rain streaks — diagonal lines moving downward.
+  ctx.save();
+  ctx.strokeStyle = "rgba(180, 200, 255, 0.18)";
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  for (let i = 0; i < 80; i++) {
+    const phase = (i * 137.508 + t * 480) % (H + 80);
+    const x = ((i * 71.3) % W);
+    const y = phase - 80;
+    ctx.moveTo(x, y);
+    ctx.lineTo(x - 6, y + 18);
+  }
+  ctx.stroke();
+  ctx.restore();
+
+  // Lightning scheduling. Random bolts every 0.4-2.4s, more often on bass spikes.
+  const dt = state.lastDt || 0;
+  state.lightningCd = (state.lightningCd || 0) - dt - e.bass * dt * 1.5;
+  if (state.lightningCd <= 0) {
+    state.lightningCd = 0.4 + Math.random() * 2.0;
+    state.lightning = makeLightningBolt();
+  }
+  if (state.lightning) {
+    const b = state.lightning;
+    b.life -= dt;
+    if (b.life <= 0) {
+      state.lightning = null;
+    } else {
+      const fadeT = Math.max(0, b.life / b.dur);
+      // Full-screen flash on the early frames.
+      if (fadeT > 0.55) {
+        ctx.fillStyle = `rgba(190, 215, 255, ${0.35 * (fadeT - 0.55) / 0.45})`;
+        ctx.fillRect(0, 0, W, H);
+      }
+      // Bolt itself — bright core + soft glow.
+      ctx.save();
+      ctx.shadowColor = "rgba(180, 210, 255, 0.9)";
+      ctx.shadowBlur = 18;
+      ctx.strokeStyle = `rgba(220, 235, 255, ${0.6 + 0.4 * fadeT})`;
+      ctx.lineWidth = 2.4;
+      ctx.beginPath();
+      ctx.moveTo(b.pts[0].x, b.pts[0].y);
+      for (let i = 1; i < b.pts.length; i++) ctx.lineTo(b.pts[i].x, b.pts[i].y);
+      ctx.stroke();
+      // Inner white-hot core.
+      ctx.shadowBlur = 0;
+      ctx.strokeStyle = `rgba(255, 255, 255, ${0.7 + 0.3 * fadeT})`;
+      ctx.lineWidth = 1;
+      ctx.stroke();
+      // Forks.
+      for (const f of b.forks) {
+        ctx.beginPath();
+        ctx.moveTo(f[0].x, f[0].y);
+        for (let i = 1; i < f.length; i++) ctx.lineTo(f[i].x, f[i].y);
+        ctx.strokeStyle = `rgba(200, 220, 255, ${0.5 * fadeT})`;
+        ctx.lineWidth = 1.4;
+        ctx.stroke();
+      }
+      ctx.restore();
+    }
+  }
+
+  // Subtle horizon glow on bass.
+  if (e.bass > 0.1) {
+    const pg = ctx.createRadialGradient(W / 2, H * 0.85, 40, W / 2, H * 0.85, W * 0.7);
+    pg.addColorStop(0, `rgba(180, 140, 255, ${e.bass * 0.18})`);
+    pg.addColorStop(1, "rgba(0,0,0,0)");
+    ctx.fillStyle = pg;
+    ctx.fillRect(0, 0, W, H);
+  }
+}
+
+function makeLightningBolt() {
+  // Jagged top-to-bottom polyline with a few side forks.
+  const startX = 50 + Math.random() * (W - 100);
+  const pts = [{ x: startX, y: -10 }];
+  let x = startX, y = 0;
+  while (y < H) {
+    y += 18 + Math.random() * 26;
+    x += (Math.random() - 0.5) * 70;
+    pts.push({ x, y });
+  }
+  const forks = [];
+  const forkCount = 1 + Math.floor(Math.random() * 3);
+  for (let i = 0; i < forkCount; i++) {
+    const start = pts[2 + Math.floor(Math.random() * Math.max(1, pts.length - 4))];
+    if (!start) continue;
+    const f = [{ x: start.x, y: start.y }];
+    let fx = start.x, fy = start.y;
+    const dir = Math.random() < 0.5 ? -1 : 1;
+    const len = 3 + Math.floor(Math.random() * 4);
+    for (let j = 0; j < len; j++) {
+      fx += dir * (16 + Math.random() * 22);
+      fy += 8 + Math.random() * 18;
+      f.push({ x: fx, y: fy });
+    }
+    forks.push(f);
+  }
+  const dur = 0.18 + Math.random() * 0.14;
+  return { pts, forks, dur, life: dur };
+}
+
 function render() {
   renderBackground();
 
@@ -1724,6 +2761,19 @@ function render() {
   if (state.phase === "title") {
     renderTitle();
     return;
+  }
+
+  // Screen-shake offset (e.g. from a nuke detonation) — applied to the gameplay
+  // world but reset before HUD/pause/victory rendering so UI stays steady.
+  let shakeApplied = false;
+  if ((state.shake || 0) > 0) {
+    const k = Math.min(1, state.shake / 0.7);
+    const mag = (state.shakeMag || 12) * k;
+    const ox = (Math.random() - 0.5) * 2 * mag;
+    const oy = (Math.random() - 0.5) * 2 * mag;
+    ctx.save();
+    ctx.translate(ox, oy);
+    shakeApplied = true;
   }
 
   // Bullets
@@ -1787,7 +2837,35 @@ function render() {
       drawProjectile(pk.weapon, pk.x, pk.y, pk.size * 1.25 * pulse);
       ctx.save();
       ctx.translate(pk.x, pk.y);
+    } else if (pk.type === "godmode") {
+      // Glowing gold halo + miniature ship icon. Telegraphs rarity at a glance.
+      const r = pk.size * 0.85 * pulse;
+      ctx.shadowColor = "#ffd84a"; ctx.shadowBlur = 22;
+      const g = ctx.createRadialGradient(0, 0, 2, 0, 0, r);
+      g.addColorStop(0, "rgba(255,240,160,0.95)");
+      g.addColorStop(0.55, "rgba(255,200,60,0.55)");
+      g.addColorStop(1, "rgba(255,140,0,0)");
+      ctx.fillStyle = g;
+      ctx.beginPath(); ctx.arc(0, 0, r, 0, Math.PI * 2); ctx.fill();
+      ctx.shadowBlur = 0;
+      ctx.strokeStyle = "#fff3a0"; ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.arc(0, 0, r * 0.55, 0, Math.PI * 2); ctx.stroke();
+      // Tiny ship sketch.
+      const god = state.sprites.playerGod;
+      if (god && god.img) {
+        const sz = pk.size * 0.95;
+        ctx.drawImage(god.img, -sz / 2, -sz / 2, sz, sz);
+      } else {
+        ctx.fillStyle = "#fff";
+        ctx.beginPath();
+        ctx.moveTo(-r * 0.35, -r * 0.18);
+        ctx.lineTo(r * 0.35, 0);
+        ctx.lineTo(-r * 0.35, r * 0.18);
+        ctx.closePath();
+        ctx.fill();
+      }
     } else {
+      // Boost: weaponMissle icon as the visual cue.
       const img = state.sprites.weaponMissle.img;
       const sz = pk.size * pulse;
       ctx.shadowColor = "#ffd27a"; ctx.shadowBlur = 12;
@@ -1816,25 +2894,104 @@ function render() {
       }
       continue;
     }
+    if (e.kind === "mini" && e.img) {
+      // L1 mini-boss is a scaled-up dragon (faces right in source — flip it).
+      // L2+ mini-bosses use bespoke art authored facing left — don't flip.
+      const flip = (state.level && state.level.bossSprite === "enemyDragon");
+      ctx.save();
+      ctx.translate(e.x, e.y);
+      if (flip) ctx.scale(-1, 1);
+      ctx.drawImage(e.img, -e.size / 2, -e.size / 2, e.size, e.size);
+      ctx.restore();
+      continue;
+    }
+    // Regular enemies face right in source art — flip horizontally.
     ctx.save();
     ctx.translate(e.x, e.y);
-    ctx.scale(-1, 1);
-    ctx.drawImage(e.img, -e.size / 2, -e.size / 2, e.size, e.size);
+    if (e.enemyKind === "orb") {
+      // Orb is radially symmetric — no flip.
+      ctx.drawImage(e.img, -e.size / 2, -e.size / 2, e.size, e.size);
+    } else {
+      ctx.scale(-1, 1);
+      ctx.drawImage(e.img, -e.size / 2, -e.size / 2, e.size, e.size);
+    }
     ctx.restore();
   }
 
-  // Player
+  // Asteroids (above enemies, below player).
+  for (const a of state.asteroids) {
+    ctx.save();
+    ctx.translate(a.x, a.y);
+    ctx.rotate(a.rot);
+    if (a.img) {
+      ctx.drawImage(a.img, -a.size / 2, -a.size / 2, a.size, a.size);
+    } else {
+      // Procedural fallback: jagged grey polygon.
+      const r = (a.kind === "medium" ? ASTEROID_MEDIUM_RADIUS : ASTEROID_SMALL_RADIUS);
+      ctx.fillStyle = "#5b5650";
+      ctx.strokeStyle = "#2a2622";
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      const sides = 9;
+      for (let i = 0; i < sides; i++) {
+        const ang = (i / sides) * Math.PI * 2;
+        const rr = r * (0.85 + ((i * 7) % 5) * 0.05);
+        const xx = Math.cos(ang) * rr, yy = Math.sin(ang) * rr;
+        if (i === 0) ctx.moveTo(xx, yy); else ctx.lineTo(xx, yy);
+      }
+      ctx.closePath(); ctx.fill(); ctx.stroke();
+    }
+    ctx.restore();
+  }
+
+  // Mother Ship shockwave (drawn behind beams + ship).
+  if (state.bossShockwave) {
+    const sw = state.bossShockwave;
+    ctx.save();
+    ctx.globalCompositeOperation = "lighter";
+    ctx.strokeStyle = "rgba(255,180,90,0.9)";
+    ctx.lineWidth = sw.thickness;
+    ctx.shadowColor = "#ffb26b"; ctx.shadowBlur = 24;
+    ctx.beginPath(); ctx.arc(sw.cx, sw.cy, sw.r, 0, Math.PI * 2); ctx.stroke();
+    ctx.restore();
+  }
+
+  // Homing eye-lasers — additive cyan trail + glowing head.
+  for (const beam of state.homingBeams) {
+    ctx.save();
+    ctx.globalCompositeOperation = "lighter";
+    ctx.strokeStyle = "rgba(95,184,255,0.55)";
+    ctx.lineWidth = 4;
+    ctx.beginPath();
+    for (let i = 0; i < beam.trail.length; i++) {
+      const pt = beam.trail[i];
+      if (i === 0) ctx.moveTo(pt.x, pt.y); else ctx.lineTo(pt.x, pt.y);
+    }
+    ctx.stroke();
+    ctx.shadowColor = "#5fb8ff"; ctx.shadowBlur = 14;
+    ctx.fillStyle = "#cfeaff";
+    ctx.beginPath(); ctx.arc(beam.x, beam.y, beam.radius, 0, Math.PI * 2); ctx.fill();
+    ctx.restore();
+  }
+
+  // Player. Draw with natural aspect — MK 4 (and the God Mode sprite) are
+  // wider than tall, so forcing a square box stretches them vertically.
   const p = state.player;
   const blink = p.invuln > 0 && Math.floor(state.t * 20) % 2 === 0;
   if (!blink) {
+    const iw = p.img && p.img.width  || 1;
+    const ih = p.img && p.img.height || 1;
+    const aspect = iw / ih;
+    const dw = aspect >= 1 ? p.size : p.size * aspect;
+    const dh = aspect >= 1 ? p.size / aspect : p.size;
     if (p.flipX) {
       ctx.save();
       ctx.translate(p.x, p.y);
       ctx.scale(-1, 1);
-      ctx.drawImage(p.img, -p.size / 2, -p.size / 2, p.size, p.size);
+      ctx.drawImage(p.img, -dw / 2, -dh / 2, dw, dh);
       ctx.restore();
     } else {
-      drawSprite(p.img, p.x, p.y, p.size);
+      ctx.drawImage(p.img, p.x - dw / 2, p.y - dh / 2, dw, dh);
     }
   }
   // Shield bubble around the player (flickers when about to expire).
@@ -1853,11 +3010,12 @@ function render() {
     ctx.restore();
   }
 
-  // God-mode shimmer halo.
-  if (state.godMode) {
+  // God-mode shimmer halo (permanent MICO cheat OR active God Mode pickup).
+  if (state.godMode || p.godPickupT > 0) {
     ctx.save();
     const pulse = 0.5 + 0.5 * Math.sin(state.t * 6);
-    ctx.strokeStyle = `rgba(255, 215, 80, ${0.45 + 0.3 * pulse})`;
+    const intensity = state.godMode ? 1 : Math.min(1, p.godPickupT / 5); // fade in last 5s
+    ctx.strokeStyle = `rgba(255, 215, 80, ${(0.45 + 0.3 * pulse) * (state.godMode ? 1 : 0.85 + 0.15 * intensity)})`;
     ctx.lineWidth = 2;
     ctx.beginPath(); ctx.arc(p.x, p.y, p.size * 0.62, 0, Math.PI * 2); ctx.stroke();
     ctx.restore();
@@ -1871,18 +3029,38 @@ function render() {
   }
   ctx.globalAlpha = 1;
 
+  if (shakeApplied) ctx.restore();
+
   // HUD
   ctx.fillStyle = "#0b1224cc";
-  ctx.fillRect(10, 10, 260, 58);
-  ctx.strokeStyle = "#ffffff22"; ctx.strokeRect(10, 10, 260, 58);
+  ctx.fillRect(10, 10, 260, 98);
+  ctx.strokeStyle = "#ffffff22"; ctx.strokeRect(10, 10, 260, 98);
   ctx.fillStyle = "#fff"; ctx.font = "14px system-ui"; ctx.textAlign = "left";
   ctx.fillText(`Score: ${state.score}`, 20, 30);
   ctx.fillText(`Weapon: ${WEAPONS[p.weapon].label}`, 20, 50);
+  ctx.fillStyle = "#cfd6ee"; ctx.font = "12px system-ui";
+  ctx.fillText(`Kills: ${state.kills | 0}`, 20, 96);
   // HP bar
   ctx.fillStyle = "#ffffff33"; ctx.fillRect(140, 18, 120, 14);
   ctx.fillStyle = p.hp > 3 ? "#6bd68a" : "#ff6b6b";
   ctx.fillRect(140, 18, 120 * Math.max(0, p.hp) / p.maxHp, 14);
   ctx.strokeStyle = "#fff6"; ctx.strokeRect(140, 18, 120, 14);
+  // Energy bar (laser fuel) — drains while holding fire with the laser equipped.
+  const energyPct = Math.max(0, Math.min(1, (p.energy || 0) / (p.maxEnergy || 100)));
+  const lowE = energyPct < 0.2;
+  const isLaserNow = p.weapon === "laser";
+  ctx.fillStyle = "#cfe6ff"; ctx.font = "11px system-ui";
+  ctx.fillText(`Energy${isLaserNow && p._laserOut ? "  (RECHARGING)" : ""}`, 20, 76);
+  ctx.fillStyle = "#ffffff33"; ctx.fillRect(140, 64, 120, 12);
+  ctx.fillStyle = lowE ? "#ffb26b" : "#7fd6ff";
+  ctx.fillRect(140, 64, 120 * energyPct, 12);
+  ctx.strokeStyle = "#fff6"; ctx.strokeRect(140, 64, 120, 12);
+  // Nuke charges indicator (right-side of weapon line).
+  if (p.unlocked.missle || (p.nukeAmmo || 0) > 0) {
+    ctx.fillStyle = "#ffb26b"; ctx.font = "bold 12px system-ui"; ctx.textAlign = "right";
+    ctx.fillText(`NUKE ${p.nukeAmmo || 0}/${NUKE_MAX}`, 260, 50);
+    ctx.textAlign = "left";
+  }
 
   // Boss HP bar
   if (state.boss) {
@@ -1893,9 +3071,7 @@ function render() {
     ctx.fillStyle = "#0b1224cc"; ctx.fillRect(bx - 6, by - 22, bw + 12, bh + 28);
     ctx.strokeStyle = "#ffffff33"; ctx.strokeRect(bx - 6, by - 22, bw + 12, bh + 28);
     ctx.fillStyle = "#fff"; ctx.textAlign = "center"; ctx.font = "bold 14px system-ui";
-    const label = finalB ? "FINAL BOSS — THE HARBINGER"
-                : semi   ? "SEMI-FINAL BOSS — THE SCOURGE"
-                         : "MINI-BOSS";
+    const label = b.label || (finalB ? "FINAL BOSS" : semi ? "SEMI-FINAL BOSS" : "MINI-BOSS");
     ctx.fillText(`${label}  —  ${Math.max(0, Math.ceil(b.hp))} / ${b.maxHp}`, W / 2, by - 6);
     ctx.fillStyle = "#ffffff22"; ctx.fillRect(bx, by, bw, bh);
     const pct = Math.max(0, b.hp) / b.maxHp;
@@ -1949,13 +3125,13 @@ function render() {
   const ax = W - 20, ay = 60;
   ctx.textAlign = "right"; ctx.font = "12px system-ui";
   if (!audio.available) {
-    ctx.fillStyle = "#ff8a8a"; ctx.fillText("♪ missing audio/Artificial Savior.mp3", ax, ay);
+    ctx.fillStyle = "#ff8a8a"; ctx.fillText(`♪ missing ${audio.activeTrackPath || "audio/Artificial Savior.mp3"}`, ax, ay);
   } else if (audio.muted) {
-    ctx.fillStyle = "#ffb26b"; ctx.fillText("♪ muted (M)", ax, ay);
+    ctx.fillStyle = "#ffb26b"; ctx.fillText("♪ muted (X)", ax, ay);
   } else if (!audio.started) {
-    ctx.fillStyle = "#cfd6ee"; ctx.fillText("♪ press any key to play music (M to mute)", ax, ay);
+    ctx.fillStyle = "#cfd6ee"; ctx.fillText("♪ press any key to play music (X to mute)", ax, ay);
   } else {
-    ctx.fillStyle = "#9fd1ff"; ctx.fillText("♪ playing (M to mute)", ax, ay);
+    ctx.fillStyle = "#9fd1ff"; ctx.fillText("♪ playing (X to mute)", ax, ay);
   }
 
   if (state.gameOver) {
@@ -1997,13 +3173,19 @@ function render() {
         ctx.fillText("▲", r.x + r.w / 2, r.y - 10);
         ctx.fillText("▼", r.x + r.w / 2, r.y + r.h + 28);
       }
+    } else if (state.outro && state.continueAvailable) {
+      // Intermediate-level outro: CONTINUE prompt is rendered inside drawVictoryScreen.
+      ctx.fillStyle = "#8d95ad"; ctx.font = "12px system-ui";
+      ctx.fillText("(R restarts the entire run)", W / 2, 280);
     } else {
       ctx.fillStyle = "#cfd6ee"; ctx.font = "16px system-ui";
       ctx.fillText("Press R to restart", W / 2, 188);
     }
 
-    // Leaderboard panel.
-    drawLeaderboard(W / 2 - 170, 360, 340, 160);
+    // Leaderboard panel — only on the final-level outro / game-over screens.
+    if (!state.outro || !state.continueAvailable) {
+      drawLeaderboard(W / 2 - 170, 360, 340, 160);
+    }
   }
 
   if (state.paused) {
@@ -2018,7 +3200,7 @@ function render() {
     ctx.fillStyle = "#cfd6ee"; ctx.font = "14px system-ui";
     ctx.fillText("Press P to resume  ·  Tap ▶ on touch", W / 2, 104);
 
-    // 4-character cheat code entry — mirrors initials entry UX.
+    // 4-character cheat code entry — opt-in via the on-screen button below.
     if (state.cheatEntry) {
       const en = state.cheatEntry;
       ctx.fillStyle = "#9fd1ff"; ctx.font = "bold 16px system-ui";
@@ -2043,6 +3225,24 @@ function render() {
         ctx.fillText("▲", r.x + r.w / 2, r.y - 12);
         ctx.fillText("▼", r.x + r.w / 2, r.y + r.h + 14);
       }
+      // Submit / cancel hints.
+      ctx.textBaseline = "alphabetic";
+      ctx.fillStyle = "#cfd6ee"; ctx.font = "12px system-ui";
+      ctx.fillText("Enter / FIRE to submit  ·  Esc to cancel", W / 2, 268);
+    } else {
+      // Opt-in CHEAT CODE button. Click to open entry boxes.
+      const btn = cheatButtonRect();
+      ctx.save();
+      ctx.shadowColor = "#ffd27a"; ctx.shadowBlur = 12;
+      ctx.fillStyle = "#1a2a6c";
+      ctx.fillRect(btn.x, btn.y, btn.w, btn.h);
+      ctx.strokeStyle = "#ffd27a"; ctx.lineWidth = 2;
+      ctx.strokeRect(btn.x, btn.y, btn.w, btn.h);
+      ctx.restore();
+      ctx.fillStyle = "#ffd27a"; ctx.font = "bold 16px system-ui";
+      ctx.textBaseline = "middle";
+      ctx.fillText("◆ CHEAT CODE ◆", W / 2, btn.y + btn.h / 2 + 1);
+      ctx.textBaseline = "alphabetic";
     }
 
     ctx.textBaseline = "alphabetic";
@@ -2056,32 +3256,42 @@ function drawLeaderboard(panelX, panelY, panelW, panelH) {
   ctx.textAlign = "center"; ctx.textBaseline = "alphabetic";
   ctx.fillStyle = "#9fd1ff"; ctx.font = "bold 18px system-ui";
   ctx.fillText("HIGH SCORES", panelX + panelW / 2, panelY + 22);
-  const maxRows = Math.max(1, Math.floor((panelH - 40) / 20));
+  const maxRows = Math.max(1, Math.floor((panelH - 56) / 20));
   const entries = state.hiscores.slice(0, maxRows);
+  ctx.font = "12px ui-monospace, Menlo, Consolas, monospace";
+  ctx.fillStyle = "#8d95ad";
+  ctx.textAlign = "left";   ctx.fillText("#",       panelX + 20,  panelY + 44);
+                            ctx.fillText("INIT",    panelX + 60,  panelY + 44);
+  ctx.textAlign = "right";  ctx.fillText("KILLS",   panelX + panelW - 90, panelY + 44);
+                            ctx.fillText("SCORE",   panelX + panelW - 20, panelY + 44);
   ctx.font = "14px ui-monospace, Menlo, Consolas, monospace";
-  ctx.textAlign = "left";
   const just = (state.entry && state.entry.submitted) ? state.entry.letters.join("") : null;
   const justScore = state.entry ? state.entry.score : null;
   for (let i = 0; i < entries.length; i++) {
     const row = entries[i];
-    const y = panelY + 52 + i * 20;
+    const y = panelY + 64 + i * 20;
     const isJust = just && row.initials === just && row.score === justScore;
     ctx.fillStyle = isJust ? "#ffd27a" : "#cfd6ee";
+    ctx.textAlign = "left";
     ctx.fillText(`${String(i + 1).padStart(2, " ")}.`, panelX + 20, y);
     ctx.fillText(row.initials, panelX + 60, y);
     ctx.textAlign = "right";
+    ctx.fillText(String((row.kills | 0)), panelX + panelW - 90, y);
     ctx.fillText(String(row.score), panelX + panelW - 20, y);
-    ctx.textAlign = "left";
   }
   if (entries.length === 0) {
     ctx.fillStyle = "#8d95ad"; ctx.textAlign = "center";
-    ctx.fillText("(no scores yet)", panelX + panelW / 2, panelY + 72);
+    ctx.fillText("(no scores yet)", panelX + panelW / 2, panelY + 84);
   }
   ctx.textAlign = "left"; ctx.textBaseline = "alphabetic";
 }
 
 function drawVictoryScreen() {
   const vt = Math.max(0, state.t - state.victoryStartT);
+  const lvl = state.level || LEVELS[0];
+  const ps = (lvl.planet) || {};
+  const palette = ps.palette || ["#6fa8ff", "#2e4da8", "#070a22"];
+  const ringColor = ps.ringColor || "rgba(255,210,160,0.55)";
 
   // Deep space backdrop with a slow nebula tint.
   const bg = ctx.createLinearGradient(0, 0, W, H);
@@ -2099,40 +3309,91 @@ function drawVictoryScreen() {
     ctx.fillRect(W - sx, sy, 2, 2);
   }
 
-  // Planet on the right — layered gradient + rim light + ring.
-  const planet = { x: W - 150, y: H / 2 + 80, r: 110 };
-  const p1 = ctx.createRadialGradient(planet.x - planet.r * 0.4, planet.y - planet.r * 0.4, planet.r * 0.1,
-                                       planet.x, planet.y, planet.r);
-  p1.addColorStop(0, "#6fa8ff");
-  p1.addColorStop(0.55, "#2e4da8");
-  p1.addColorStop(1, "#070a22");
-  ctx.fillStyle = p1;
-  ctx.beginPath(); ctx.arc(planet.x, planet.y, planet.r, 0, Math.PI * 2); ctx.fill();
-  // Rim glow.
-  ctx.save();
-  ctx.shadowColor = "#6fa8ff"; ctx.shadowBlur = 40;
-  ctx.strokeStyle = "rgba(160,200,255,0.55)"; ctx.lineWidth = 2;
-  ctx.beginPath(); ctx.arc(planet.x, planet.y, planet.r + 2, 0, Math.PI * 2); ctx.stroke();
-  ctx.restore();
-  // Tilted ring.
-  ctx.save();
-  ctx.translate(planet.x, planet.y);
-  ctx.rotate(-0.35);
-  ctx.scale(1, 0.22);
-  ctx.strokeStyle = "rgba(255,210,160,0.55)"; ctx.lineWidth = 4;
-  ctx.beginPath(); ctx.arc(0, 0, planet.r * 1.55, 0, Math.PI * 2); ctx.stroke();
-  ctx.strokeStyle = "rgba(255,210,160,0.25)"; ctx.lineWidth = 10;
-  ctx.beginPath(); ctx.arc(0, 0, planet.r * 1.55, 0, Math.PI * 2); ctx.stroke();
-  ctx.restore();
+  // Planet on the right — sprite if configured + loaded, else procedural.
+  const planet = { x: W - 200, y: H / 2 + 60, r: 110 };
+  const isFinal = !lvl.nextLevel;
+  const heavenly = isFinal && !ps.sprite;
+  const psSprite = ps.sprite ? state.sprites[ps.sprite] : null;
+  if (psSprite && psSprite.img) {
+    const targetH = H * 0.55;
+    const scale = targetH / psSprite.img.height;
+    const w = psSprite.img.width * scale, h = psSprite.img.height * scale;
+    ctx.save();
+    ctx.shadowColor = palette[0]; ctx.shadowBlur = 30;
+    ctx.drawImage(psSprite.img, planet.x - w / 2, planet.y - h / 2, w, h);
+    ctx.restore();
+    // Update planet.r approx for ship-end-position calculation below.
+    planet.r = w * 0.5;
+  } else {
+    // Heavenly variant on the final-victory screen (Mother Ship defeated):
+    // gold/white palette, radiant light rays, double halo.
+    const useHeavenly = heavenly;
+    const heavenPalette = ["#fff7d6", "#ffd27a", "#5a3a18"];
+    const drawPalette = useHeavenly ? heavenPalette : palette;
+    const drawRing = useHeavenly ? "rgba(255,236,180,0.7)" : ringColor;
 
-  // MK3 ship flying from left toward the planet over ~6 seconds, then hovering.
+    if (useHeavenly) {
+      // Radiating light rays behind the planet.
+      ctx.save();
+      ctx.translate(planet.x, planet.y);
+      const rays = 18;
+      for (let i = 0; i < rays; i++) {
+        const a = (i / rays) * Math.PI * 2 + vt * 0.15;
+        const len = planet.r * (3.6 + 0.5 * Math.sin(vt * 0.8 + i));
+        const w0 = planet.r * 0.08;
+        ctx.fillStyle = `rgba(255, 240, 190, ${0.05 + 0.05 * Math.sin(vt * 1.2 + i)})`;
+        ctx.beginPath();
+        ctx.moveTo(0, 0);
+        ctx.lineTo(Math.cos(a) * len - Math.sin(a) * w0, Math.sin(a) * len + Math.cos(a) * w0);
+        ctx.lineTo(Math.cos(a) * len + Math.sin(a) * w0, Math.sin(a) * len - Math.cos(a) * w0);
+        ctx.closePath(); ctx.fill();
+      }
+      ctx.restore();
+      // Outer halo.
+      ctx.save();
+      const halo = ctx.createRadialGradient(planet.x, planet.y, planet.r * 0.9,
+                                             planet.x, planet.y, planet.r * 2.2);
+      halo.addColorStop(0, "rgba(255, 240, 190, 0.55)");
+      halo.addColorStop(1, "rgba(255, 240, 190, 0)");
+      ctx.fillStyle = halo;
+      ctx.beginPath(); ctx.arc(planet.x, planet.y, planet.r * 2.2, 0, Math.PI * 2); ctx.fill();
+      ctx.restore();
+    }
+
+    const p1 = ctx.createRadialGradient(planet.x - planet.r * 0.4, planet.y - planet.r * 0.4, planet.r * 0.1,
+                                         planet.x, planet.y, planet.r);
+    p1.addColorStop(0, drawPalette[0]);
+    p1.addColorStop(0.55, drawPalette[1]);
+    p1.addColorStop(1, drawPalette[2]);
+    ctx.fillStyle = p1;
+    ctx.beginPath(); ctx.arc(planet.x, planet.y, planet.r, 0, Math.PI * 2); ctx.fill();
+    // Rim glow.
+    ctx.save();
+    ctx.shadowColor = useHeavenly ? "#fff7d6" : drawPalette[0]; ctx.shadowBlur = useHeavenly ? 60 : 40;
+    ctx.strokeStyle = useHeavenly ? "rgba(255,250,220,0.85)" : "rgba(160,200,255,0.55)";
+    ctx.lineWidth = useHeavenly ? 3 : 2;
+    ctx.beginPath(); ctx.arc(planet.x, planet.y, planet.r + 2, 0, Math.PI * 2); ctx.stroke();
+    ctx.restore();
+    // Tilted ring.
+    ctx.save();
+    ctx.translate(planet.x, planet.y);
+    ctx.rotate(-0.35);
+    ctx.scale(1, 0.22);
+    ctx.strokeStyle = drawRing; ctx.lineWidth = 4;
+    ctx.beginPath(); ctx.arc(0, 0, planet.r * 1.55, 0, Math.PI * 2); ctx.stroke();
+    ctx.strokeStyle = drawRing.replace(/[\d.]+\)$/, "0.25)"); ctx.lineWidth = 10;
+    ctx.beginPath(); ctx.arc(0, 0, planet.r * 1.55, 0, Math.PI * 2); ctx.stroke();
+    ctx.restore();
+  }
+
+  // Player ship flies in from the left toward the planet, then hovers.
   const flightDur = 6;
-  const ease = (t) => 1 - Math.pow(1 - Math.min(1, t), 2); // easeOutQuad
+  const ease = (t) => 1 - Math.pow(1 - Math.min(1, t), 2);
   const prog = ease(vt / flightDur);
   const startX = -120, endX = planet.x - planet.r - 60;
   const shipX = startX + (endX - startX) * prog;
   const shipY = 200 + Math.sin(vt * 1.6) * 8;
-  const shipScale = 1.0 - prog * 0.22; // slight perspective shrink
+  const shipScale = 1.0 - prog * 0.22;
 
   // Engine exhaust trail.
   const trailLen = 140 * (1 - prog * 0.6);
@@ -2147,15 +3408,14 @@ function drawVictoryScreen() {
   ctx.lineTo(shipX - trailLen, shipY + 6);
   ctx.closePath(); ctx.fill();
 
-  // Ship sprite (prefer MK3, fallback MK2/MK1).
-  const shipSprite = (state.sprites && (state.sprites.playerMk3 && state.sprites.playerMk3.img ? state.sprites.playerMk3
-                                        : state.sprites.playerMk2 && state.sprites.playerMk2.img ? state.sprites.playerMk2
-                                        : state.sprites.player)) || null;
-  if (shipSprite && shipSprite.img) {
-    const sz = (shipSprite.size || 72) * 1.8 * shipScale;
+  // Ship sprite — use the player's current sprite (reflects MK4/God if active).
+  const shipImg = (state.player && state.player.img) || (state.sprites.player && state.sprites.player.img);
+  const shipSize = (state.player && state.player.size) || 72;
+  if (shipImg) {
+    const sz = shipSize * 1.8 * shipScale;
     ctx.save();
     ctx.shadowColor = "#5fb8ff"; ctx.shadowBlur = 18;
-    ctx.drawImage(shipSprite.img, shipX - sz / 2, shipY - sz / 2, sz, sz);
+    ctx.drawImage(shipImg, shipX - sz / 2, shipY - sz / 2, sz, sz);
     ctx.restore();
   }
 
@@ -2168,18 +3428,44 @@ function drawVictoryScreen() {
   ctx.fillText("ARTIFICIAL SAVIOR", W / 2, 72);
   ctx.restore();
 
-  // "MISSION ACCOMPLISHED" — pulsing glow, alternating warm/cool colors.
+  // Headline differs by intermediate vs final (isFinal declared above).
   const pulse = 0.7 + 0.3 * Math.sin(vt * 2.4);
   ctx.save();
   ctx.shadowColor = "#ffd27a"; ctx.shadowBlur = 28 * pulse + 10;
   ctx.fillStyle = `rgba(255, 220, 140, ${0.85 + 0.15 * pulse})`;
   ctx.font = "bold 40px system-ui";
-  ctx.fillText("MISSION ACCOMPLISHED", W / 2, 128);
+  if (isFinal) {
+    ctx.fillText("MISSION ACCOMPLISHED", W / 2, 128);
+  } else {
+    ctx.fillText(`LEVEL ${lvl.id} CLEARED`, W / 2, 128);
+  }
   ctx.restore();
 
-  // Score line.
+  // Score / kills line.
   ctx.fillStyle = "#cfd6ee"; ctx.font = "20px system-ui";
-  ctx.fillText(`Final Score: ${state.score}`, W / 2, 166);
+  ctx.fillText(`${isFinal ? "Final Score" : "Score"}: ${state.score}`, W / 2, 166);
+  ctx.fillStyle = "#9fd1ff"; ctx.font = "16px system-ui";
+  ctx.fillText(`Enemy Ships Destroyed: ${state.kills | 0}`, W / 2, 188);
+
+  // Continue prompt for intermediate levels — gated by the post-victory hold so
+  // music can crossfade and the player can register the win before advancing.
+  if (!isFinal && state.continueAvailable) {
+    if ((state.outroDelay || 0) > 0) {
+      const remaining = Math.ceil(state.outroDelay);
+      ctx.fillStyle = "#9fd1ff"; ctx.font = "bold 18px system-ui";
+      ctx.fillText(`LEVEL COMPLETE — ${remaining}…`, W / 2, 218);
+    } else {
+      const cp = 0.6 + 0.4 * Math.sin(vt * 3);
+      ctx.save();
+      ctx.shadowColor = "#9fd1ff"; ctx.shadowBlur = 18 * cp + 8;
+      ctx.fillStyle = `rgba(207, 230, 255, ${0.7 + 0.3 * cp})`;
+      ctx.font = "bold 26px system-ui";
+      ctx.fillText(lvl.outroPrompt || "CONTINUE", W / 2, 218);
+      ctx.restore();
+      ctx.fillStyle = "#cfd6ee"; ctx.font = "14px system-ui";
+      ctx.fillText("Press FIRE / Enter / ▶ to continue", W / 2, 248);
+    }
+  }
   ctx.textBaseline = "alphabetic";
 }
 
@@ -2286,9 +3572,10 @@ main();
     });
   });
 
-  // Context-aware action button: Start / Pause / Resume / Retry.
+  // Context-aware action button: Start / Pause / Resume / Retry / Continue.
   function actionLabel() {
     if (state.phase === "title") return "START";
+    if (state.outro && state.continueAvailable) return "▶";
     if (state.gameOver && (!state.entry || state.entry.submitted)) return "RETRY";
     if (state.entry && !state.entry.submitted) return "OK";
     return state.paused ? "▶" : "II";
@@ -2297,6 +3584,8 @@ main();
     audio.unlockAndPlay();
     if (state.phase === "title") {
       state.titleElapsed = 1e9;
+    } else if (state.outro && state.continueAvailable) {
+      if ((state.outroDelay || 0) <= 0) advanceLevel();
     } else if (state.entry && !state.entry.submitted) {
       handleEntryKey("Enter");
     } else if (state.gameOver) {
@@ -2354,6 +3643,14 @@ main();
         cycleCheatLetter(tapStart.pos, tapStart.chevron);
       }
       e.preventDefault();
+    } else if (state.paused) {
+      // Pause menu: click the CHEAT CODE button to open the entry boxes.
+      const p = toCanvas(e);
+      const btn = cheatButtonRect();
+      if (p.x >= btn.x && p.x <= btn.x + btn.w && p.y >= btn.y && p.y <= btn.y + btn.h) {
+        openCheatEntry();
+        e.preventDefault();
+      }
     }
   });
   canvas.addEventListener("pointerup", (e) => {
