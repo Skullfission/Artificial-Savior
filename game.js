@@ -78,6 +78,17 @@ addEventListener("keydown", e => {
     return;
   }
 
+  // Pause-menu cheat-code entry intercepts alpha/num/nav keys but lets p/m/r through.
+  if (state.paused && state.cheatEntry) {
+    const isLetter = /^[a-z0-9]$/.test(k);
+    const isNav = ["arrowleft", "arrowright", "arrowup", "arrowdown", "backspace", "enter"].includes(k);
+    if (isLetter || isNav) {
+      e.preventDefault();
+      handleCheatEntryKey(e.key);
+      return;
+    }
+  }
+
   // Title-screen cheat-code capture. Silent — not shown publicly.
   if (state.phase === "title" && /^[a-z]$/.test(k)) {
     state.cheatBuffer = (state.cheatBuffer + k.toUpperCase()).slice(-8);
@@ -107,8 +118,14 @@ function togglePause() {
   // Pausing is only meaningful during active gameplay.
   if (state.phase !== "play" || state.gameOver) return;
   state.paused = !state.paused;
-  if (state.paused) audio.pauseMusic();
-  else audio.resumeMusic();
+  if (state.paused) {
+    audio.pauseMusic();
+    // Fresh 4-char cheat input each pause; cleared on resume.
+    state.cheatEntry = { letters: ["A", "A", "A", "A"], pos: 0 };
+  } else {
+    audio.resumeMusic();
+    state.cheatEntry = null;
+  }
 }
 
 function handleEntryKey(key) {
@@ -165,6 +182,72 @@ function cycleEntryLetter(pos, dir) {
   if (idx < 0) idx = 0;
   idx = (idx + dir + alphabet.length) % alphabet.length;
   en.letters[pos] = alphabet[idx];
+}
+
+// ---------- Pause-menu cheat-code entry (4 chars, mirrors initials UX) ----------
+
+function cheatBoxRects() {
+  const boxW = 56, boxH = 70, gap = 14;
+  const totalW = boxW * 4 + gap * 3;
+  const bx = (W - totalW) / 2;
+  const y = 168;
+  const rects = [];
+  for (let i = 0; i < 4; i++) {
+    rects.push({ i, x: bx + i * (boxW + gap), y, w: boxW, h: boxH });
+  }
+  return rects;
+}
+
+function cheatEnterRect() {
+  const w = 140, h = 40;
+  return { x: (W - w) / 2, y: 264, w, h };
+}
+
+function cycleCheatLetter(pos, dir) {
+  const en = state.cheatEntry;
+  if (!en) return;
+  const alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
+  let idx = alphabet.indexOf(en.letters[pos]);
+  if (idx < 0) idx = 0;
+  idx = (idx + dir + alphabet.length) % alphabet.length;
+  en.letters[pos] = alphabet[idx];
+}
+
+function submitCheatEntry() {
+  const en = state.cheatEntry;
+  if (!en) return;
+  const code = en.letters.join("");
+  if (CHEAT_CODES[code]) {
+    state.activeCheat = code;
+    state.cheatBanner = 2.5;
+    audio.playSfx && audio.playSfx("laser");
+    if (state.player) applyCheat(state.player);
+  }
+  // Silent on miss — leave boxes intact so a single bad swipe doesn't wipe progress.
+}
+
+function handleCheatEntryKey(key) {
+  const en = state.cheatEntry;
+  if (!en) return;
+  if (key === "Enter") { submitCheatEntry(); return; }
+  if (key === "Backspace") {
+    if (en.pos > 0) en.pos -= 1;
+    en.letters[en.pos] = "A";
+    return;
+  }
+  if (key === "ArrowLeft")  { if (en.pos > 0) en.pos -= 1; return; }
+  if (key === "ArrowRight") { if (en.pos < 3) en.pos += 1; return; }
+  if (key === "ArrowUp" || key === "ArrowDown") {
+    cycleCheatLetter(en.pos, key === "ArrowUp" ? 1 : -1);
+    return;
+  }
+  if (key.length === 1) {
+    const ch = key.toUpperCase();
+    if (/[A-Z0-9]/.test(ch)) {
+      en.letters[en.pos] = ch;
+      if (en.pos < 3) en.pos += 1;
+    }
+  }
 }
 
 // ---------- Audio ----------
@@ -490,6 +573,7 @@ const state = {
   paused: false,
   hiscores: [],
   entry: null,
+  cheatEntry: null,
   cheatBuffer: "",
   activeCheat: null,
   godMode: false,
@@ -1933,13 +2017,49 @@ function render() {
     ctx.save();
     ctx.shadowColor = "#5fb8ff"; ctx.shadowBlur = 28;
     ctx.fillStyle = "#9fd1ff";
-    ctx.font = "bold 56px system-ui";
-    ctx.fillText("PAUSED", W / 2, 110);
+    ctx.font = "bold 48px system-ui";
+    ctx.fillText("PAUSED", W / 2, 70);
     ctx.restore();
-    ctx.fillStyle = "#cfd6ee"; ctx.font = "18px system-ui";
-    ctx.fillText("Press P to resume", W / 2, 156);
+    ctx.fillStyle = "#cfd6ee"; ctx.font = "14px system-ui";
+    ctx.fillText("Press P to resume  ·  Tap ▶ on touch", W / 2, 104);
+
+    // 4-character cheat code entry — mirrors initials entry UX.
+    if (state.cheatEntry) {
+      const en = state.cheatEntry;
+      ctx.fillStyle = "#9fd1ff"; ctx.font = "bold 16px system-ui";
+      ctx.fillText("CHEAT CODE", W / 2, 138);
+      const rects = cheatBoxRects();
+      for (const r of rects) {
+        const active = r.i === en.pos;
+        ctx.fillStyle = active ? "#1a2a6c" : "#0b1224";
+        ctx.fillRect(r.x, r.y, r.w, r.h);
+        ctx.strokeStyle = active ? "#ffd27a" : "#ffffff44";
+        ctx.lineWidth = active ? 3 : 2;
+        ctx.strokeRect(r.x, r.y, r.w, r.h);
+        ctx.save();
+        if (active) { ctx.shadowColor = "#ffd27a"; ctx.shadowBlur = 14; }
+        ctx.fillStyle = "#fff"; ctx.font = "bold 40px system-ui";
+        ctx.textBaseline = "middle";
+        ctx.fillText(en.letters[r.i], r.x + r.w / 2, r.y + r.h / 2 + 2);
+        ctx.restore();
+        ctx.fillStyle = active ? "#ffd27a" : "#9fd1ff";
+        ctx.font = "bold 20px system-ui";
+        ctx.textBaseline = "middle";
+        ctx.fillText("▲", r.x + r.w / 2, r.y - 12);
+        ctx.fillText("▼", r.x + r.w / 2, r.y + r.h + 14);
+      }
+      // ENTER submit button.
+      const er = cheatEnterRect();
+      ctx.fillStyle = "#1a2a6c"; ctx.fillRect(er.x, er.y, er.w, er.h);
+      ctx.strokeStyle = "#5fb8ff"; ctx.lineWidth = 2;
+      ctx.strokeRect(er.x, er.y, er.w, er.h);
+      ctx.fillStyle = "#cfe3ff"; ctx.font = "bold 18px system-ui";
+      ctx.textBaseline = "middle";
+      ctx.fillText("ENTER", er.x + er.w / 2, er.y + er.h / 2 + 1);
+    }
+
     ctx.textBaseline = "alphabetic";
-    drawLeaderboard(W / 2 - 170, 200, 340, 240);
+    drawLeaderboard(W / 2 - 170, 322, 340, 200);
   }
 }
 
@@ -2111,6 +2231,7 @@ main();
   const knob = document.getElementById("tc-knob");
   const fire = document.getElementById("tc-fire");
   const action = document.getElementById("tc-action");
+  const pauseBtn = document.getElementById("tc-pause");
   const weaponBtns = document.querySelectorAll("#tc-weapons .tc-btn");
 
   const DIRS = ["arrowleft", "arrowright", "arrowup", "arrowdown"];
@@ -2196,6 +2317,20 @@ main();
   });
   setInterval(() => { action.textContent = actionLabel(); }, 200);
 
+  // Dedicated pause button: only meaningful during active gameplay.
+  if (pauseBtn) {
+    pauseBtn.addEventListener("pointerdown", e => {
+      audio.unlockAndPlay();
+      togglePause();
+      e.preventDefault();
+    });
+    setInterval(() => {
+      const playable = state.phase === "play" && !state.gameOver;
+      pauseBtn.classList.toggle("show", playable);
+      pauseBtn.textContent = state.paused ? "▶" : "II";
+    }, 200);
+  }
+
   // Tap on canvas also skips the title, and handles tap/swipe for high-score initials entry.
   function toCanvas(e) {
     const r = canvas.getBoundingClientRect();
@@ -2209,7 +2344,7 @@ main();
     if (state.phase === "title") { state.titleElapsed = 1e9; return; }
     if (state.entry && !state.entry.submitted) {
       const p = toCanvas(e);
-      tapStart = { x: p.x, y: p.y, pos: null, chevron: null, time: performance.now() };
+      tapStart = { kind: "entry", x: p.x, y: p.y, pos: null, chevron: null, time: performance.now() };
       const rects = entryBoxRects();
       for (const r of rects) {
         // Chevron hit zones extend 32px above and below each box.
@@ -2225,23 +2360,68 @@ main();
         cycleEntryLetter(tapStart.pos, tapStart.chevron);
       }
       e.preventDefault();
+    } else if (state.paused && state.cheatEntry) {
+      const p = toCanvas(e);
+      tapStart = { kind: "cheat", x: p.x, y: p.y, pos: null, chevron: null, enter: false, time: performance.now() };
+      const rects = cheatBoxRects();
+      for (const r of rects) {
+        if (p.x >= r.x && p.x <= r.x + r.w) {
+          if (p.y >= r.y - 32 && p.y < r.y) { tapStart.pos = r.i; tapStart.chevron = 1;  break; }
+          if (p.y > r.y + r.h && p.y <= r.y + r.h + 32) { tapStart.pos = r.i; tapStart.chevron = -1; break; }
+          if (p.y >= r.y && p.y <= r.y + r.h) { tapStart.pos = r.i; break; }
+        }
+      }
+      if (tapStart.chevron !== null && tapStart.pos !== null) {
+        state.cheatEntry.pos = tapStart.pos;
+        cycleCheatLetter(tapStart.pos, tapStart.chevron);
+      } else if (tapStart.pos === null) {
+        const er = cheatEnterRect();
+        if (p.x >= er.x && p.x <= er.x + er.w && p.y >= er.y && p.y <= er.y + er.h) {
+          tapStart.enter = true;
+        }
+      }
+      e.preventDefault();
     }
   });
   canvas.addEventListener("pointerup", (e) => {
     if (!tapStart) return;
     const t = tapStart; tapStart = null;
-    if (t.chevron !== null) return; // already handled on pointerdown
-    if (t.pos === null) return;
-    const p = toCanvas(e);
-    const dy = p.y - t.y;
-    const dx = p.x - t.x;
-    // Swipe threshold in canvas pixels.
-    if (Math.abs(dy) > 24 && Math.abs(dy) > Math.abs(dx)) {
-      state.entry.pos = t.pos;
-      cycleEntryLetter(t.pos, dy < 0 ? 1 : -1);
-    } else if (Math.abs(dx) < 20 && Math.abs(dy) < 20) {
-      // Tap: just select the box.
-      state.entry.pos = t.pos;
+    if (t.kind === "entry") {
+      if (t.chevron !== null) return; // already handled on pointerdown
+      if (t.pos === null) return;
+      const p = toCanvas(e);
+      const dy = p.y - t.y;
+      const dx = p.x - t.x;
+      if (Math.abs(dy) > 24 && Math.abs(dy) > Math.abs(dx)) {
+        state.entry.pos = t.pos;
+        cycleEntryLetter(t.pos, dy < 0 ? 1 : -1);
+      } else if (Math.abs(dx) < 20 && Math.abs(dy) < 20) {
+        state.entry.pos = t.pos;
+      }
+      return;
+    }
+    if (t.kind === "cheat") {
+      if (!state.cheatEntry) return;
+      if (t.chevron !== null) return; // handled on pointerdown
+      const p = toCanvas(e);
+      const dy = p.y - t.y;
+      const dx = p.x - t.x;
+      const isTap = Math.abs(dx) < 20 && Math.abs(dy) < 20;
+      if (t.enter) {
+        // Confirm ENTER only if pointerup is still inside the button rect (tap, not drag-out).
+        const er = cheatEnterRect();
+        if (isTap && p.x >= er.x && p.x <= er.x + er.w && p.y >= er.y && p.y <= er.y + er.h) {
+          submitCheatEntry();
+        }
+        return;
+      }
+      if (t.pos === null) return;
+      if (Math.abs(dy) > 24 && Math.abs(dy) > Math.abs(dx)) {
+        state.cheatEntry.pos = t.pos;
+        cycleCheatLetter(t.pos, dy < 0 ? 1 : -1);
+      } else if (isTap) {
+        state.cheatEntry.pos = t.pos;
+      }
     }
   });
   canvas.addEventListener("pointercancel", () => { tapStart = null; });

@@ -16,6 +16,8 @@ canvas{background:#000;border-radius:12px;box-shadow:0 0 40px #1a2a6c88;max-widt
 #tc-weapons{position:absolute;right:20px;bottom:170px;display:flex;gap:6px;pointer-events:none}
 #tc-weapons .tc-btn{width:46px;height:46px;font-size:16px;pointer-events:auto}
 #tc-action{position:absolute;right:20px;top:20px;min-width:70px;height:48px;font-size:16px;padding:0 14px}
+#tc-pause{position:absolute;right:104px;top:20px;min-width:70px;height:48px;font-size:18px;padding:0 14px;display:none}
+#tc-pause.show{display:inline-block}
 
 @media (pointer:coarse){
   body{overflow:hidden}
