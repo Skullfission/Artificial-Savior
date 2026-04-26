@@ -198,11 +198,6 @@ function cheatBoxRects() {
   return rects;
 }
 
-function cheatEnterRect() {
-  const w = 140, h = 40;
-  return { x: (W - w) / 2, y: 264, w, h };
-}
-
 function cycleCheatLetter(pos, dir) {
   const en = state.cheatEntry;
   if (!en) return;
@@ -2048,14 +2043,6 @@ function render() {
         ctx.fillText("▲", r.x + r.w / 2, r.y - 12);
         ctx.fillText("▼", r.x + r.w / 2, r.y + r.h + 14);
       }
-      // ENTER submit button.
-      const er = cheatEnterRect();
-      ctx.fillStyle = "#1a2a6c"; ctx.fillRect(er.x, er.y, er.w, er.h);
-      ctx.strokeStyle = "#5fb8ff"; ctx.lineWidth = 2;
-      ctx.strokeRect(er.x, er.y, er.w, er.h);
-      ctx.fillStyle = "#cfe3ff"; ctx.font = "bold 18px system-ui";
-      ctx.textBaseline = "middle";
-      ctx.fillText("ENTER", er.x + er.w / 2, er.y + er.h / 2 + 1);
     }
 
     ctx.textBaseline = "alphabetic";
@@ -2231,7 +2218,6 @@ main();
   const knob = document.getElementById("tc-knob");
   const fire = document.getElementById("tc-fire");
   const action = document.getElementById("tc-action");
-  const pauseBtn = document.getElementById("tc-pause");
   const weaponBtns = document.querySelectorAll("#tc-weapons .tc-btn");
 
   const DIRS = ["arrowleft", "arrowright", "arrowup", "arrowdown"];
@@ -2271,11 +2257,17 @@ main();
   stick.addEventListener("pointerup", endStick);
   stick.addEventListener("pointercancel", endStick);
 
-  // Fire (hold to auto-fire)
+  // Fire (hold to auto-fire). While the pause-menu cheat entry is open, FIRE
+  // doubles as the ENTER/submit button so the on-canvas ENTER affordance can
+  // be removed for mobile.
   fire.addEventListener("pointerdown", e => {
     fire.setPointerCapture(e.pointerId);
-    keys.add(" ");
     audio.unlockAndPlay();
+    if (state.paused && state.cheatEntry) {
+      submitCheatEntry();
+    } else {
+      keys.add(" ");
+    }
     e.preventDefault();
   });
   const endFire = () => keys.delete(" ");
@@ -2317,20 +2309,6 @@ main();
   });
   setInterval(() => { action.textContent = actionLabel(); }, 200);
 
-  // Dedicated pause button: only meaningful during active gameplay.
-  if (pauseBtn) {
-    pauseBtn.addEventListener("pointerdown", e => {
-      audio.unlockAndPlay();
-      togglePause();
-      e.preventDefault();
-    });
-    setInterval(() => {
-      const playable = state.phase === "play" && !state.gameOver;
-      pauseBtn.classList.toggle("show", playable);
-      pauseBtn.textContent = state.paused ? "▶" : "II";
-    }, 200);
-  }
-
   // Tap on canvas also skips the title, and handles tap/swipe for high-score initials entry.
   function toCanvas(e) {
     const r = canvas.getBoundingClientRect();
@@ -2362,7 +2340,7 @@ main();
       e.preventDefault();
     } else if (state.paused && state.cheatEntry) {
       const p = toCanvas(e);
-      tapStart = { kind: "cheat", x: p.x, y: p.y, pos: null, chevron: null, enter: false, time: performance.now() };
+      tapStart = { kind: "cheat", x: p.x, y: p.y, pos: null, chevron: null, time: performance.now() };
       const rects = cheatBoxRects();
       for (const r of rects) {
         if (p.x >= r.x && p.x <= r.x + r.w) {
@@ -2374,11 +2352,6 @@ main();
       if (tapStart.chevron !== null && tapStart.pos !== null) {
         state.cheatEntry.pos = tapStart.pos;
         cycleCheatLetter(tapStart.pos, tapStart.chevron);
-      } else if (tapStart.pos === null) {
-        const er = cheatEnterRect();
-        if (p.x >= er.x && p.x <= er.x + er.w && p.y >= er.y && p.y <= er.y + er.h) {
-          tapStart.enter = true;
-        }
       }
       e.preventDefault();
     }
@@ -2407,14 +2380,6 @@ main();
       const dy = p.y - t.y;
       const dx = p.x - t.x;
       const isTap = Math.abs(dx) < 20 && Math.abs(dy) < 20;
-      if (t.enter) {
-        // Confirm ENTER only if pointerup is still inside the button rect (tap, not drag-out).
-        const er = cheatEnterRect();
-        if (isTap && p.x >= er.x && p.x <= er.x + er.w && p.y >= er.y && p.y <= er.y + er.h) {
-          submitCheatEntry();
-        }
-        return;
-      }
       if (t.pos === null) return;
       if (Math.abs(dy) > 24 && Math.abs(dy) > Math.abs(dx)) {
         state.cheatEntry.pos = t.pos;
