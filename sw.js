@@ -1,7 +1,7 @@
 // Artificial Savior — offline service worker.
 // Cache-first strategy: all assets are pre-cached on install so the game plays fully offline after first visit.
 
-const CACHE = "artificial-savior-v36";
+const CACHE = "artificial-savior-v37";
 
 const ASSETS = [
   "./",
@@ -14,8 +14,11 @@ const ASSETS = [
   "./content/sprites.json",
   "./content/Planet Sprite.png",
   "./content/Artificial Savior Banner.png",
+  "./content/GameOverfire.png",
+  "./content/LV2BG.png",
   "./audio/Artificial Savior.mp3",
-  "./audio/AS L2.mp3",
+  "./audio/AS LVL2.mp3",
+  "./audio/AS L3.mp3",
   "./Ship art/MK 1 ship.png",
   "./Ship art/MK 2 ship.png",
   "./Ship art/MK 3 Ship.png",
@@ -24,7 +27,13 @@ const ASSETS = [
   "./Ship art/Dragon Ship.png",
   "./Ship art/Enemy Orb.png",
   "./Ship art/Scourge Semi-Boss.png",
-  "./Ship art/Harbinger - Final Boss.png",
+  "./Ship art/HARBINGER - FINAL BS.png",
+  "./Ship art/Techno Demon Semi-Boss.png",
+  "./Ship art/Dimensional Final Boss.png",
+  "./Ship art/Tenticle Enemy.png",
+  "./Ship art/TenticleSkull Mini-Boss.png",
+  "./Ship art/Demon Ship Mini-Boss.png",
+  "./content/Dimensional City.png",
   "./Ship art/Cube Mini-Boss.png",
   "./Ship art/Bluebird Semi-Boss.png",
   "./Ship art/Mother Ship Boss.png",

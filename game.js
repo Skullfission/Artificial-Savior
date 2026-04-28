@@ -4,7 +4,31 @@
 
 const canvas = document.getElementById("game");
 const ctx = canvas.getContext("2d");
-const W = canvas.width, H = canvas.height;
+const W = 960, H = 540;
+// Canvas backing store is resized to (displayedSize × devicePixelRatio) so
+// gameplay (which always works in 960×540 logical coords) stays crisp when
+// the page is enlarged or full-screened. The world transform is reapplied
+// at the start of every frame in `render()` via setTransform(scale,...).
+let renderScale = 1;
+function resizeCanvasBacking() {
+  const dpr = Math.min(window.devicePixelRatio || 1, 3);
+  const r = canvas.getBoundingClientRect();
+  // Fall back to logical size before CSS has computed (e.g. very early frames).
+  const cssW = r.width  || W;
+  const cssH = r.height || H;
+  const bw = Math.max(1, Math.round(cssW * dpr));
+  const bh = Math.max(1, Math.round(cssH * dpr));
+  if (canvas.width !== bw || canvas.height !== bh) {
+    canvas.width = bw;
+    canvas.height = bh;
+  }
+  // Lock to W (16:9 aspect is enforced by CSS), so x-scale == y-scale.
+  renderScale = bw / W;
+}
+resizeCanvasBacking();
+window.addEventListener("resize", resizeCanvasBacking);
+document.addEventListener("fullscreenchange", resizeCanvasBacking);
+document.addEventListener("webkitfullscreenchange", resizeCanvasBacking);
 
 const SPRITES_URL = "content/sprites.json";
 
@@ -87,6 +111,17 @@ const ENEMY_KINDS = {
     hpPerTier: 8,
     fireCdTierShrink: 0.05,
     shotConfig: { color: "#5fb8ff", size: 24, speed: 460, damage: 2, life: 2.4, speedTierBonus: 10 }
+  },
+  tenticle: {
+    sprite: "tenticleEnemy",
+    hp: 7,
+    speedMin: 60, speedMax: 130,
+    speedTierBonus: 10,
+    fireCdMin: 1.2, fireCdMax: 2.4,
+    scoreReward: 250,
+    hpPerTier: 11,
+    fireCdTierShrink: 0.06,
+    shotConfig: { color: "#c47bff", size: 16, speed: 420, damage: 2, life: 2.3, speedTierBonus: 12 }
   }
 };
 
@@ -99,8 +134,8 @@ const LEVELS = [
     semiBossScore: SEMIBOSS_SCORE_TRIGGER,
     finalBossScore: FINAL_BOSS_SCORE_TRIGGER,
     finalBossLevelTier: FINAL_BOSS_LEVEL_TRIGGER,
-    bossSprite: "enemyDragon",   // L1 mini-boss is the dragon scaled up
-    bossSpriteScale: 2.6,
+    bossSprite: "demonMini",
+    bossSpriteScale: 1.0,
     semiBossSprite: "semiBoss",
     finalBossSprite: "finalBoss",
     bossHp: BOSS_HP,
@@ -113,7 +148,7 @@ const LEVELS = [
     semiBossIncomingText: "!! SEMI-FINAL BOSS — THE SCOURGE !!",
     finalBossIncomingText: "!! FINAL BOSS — THE HARBINGER !!",
     enemyKinds: ["dragon"],
-    asteroidsAfterMiniBoss: false,
+    asteroidsAfterMiniBoss: true,
     planet: { sprite: "planetSprite", palette: ["#6fa8ff", "#2e4da8", "#070a22"], ringColor: "rgba(255,210,160,0.55)" },
     outroPrompt: "CONTINUE",
     nextLevel: 2,
@@ -140,11 +175,38 @@ const LEVELS = [
     semiBossIncomingText: "!! SEMI-FINAL BOSS — BLUEBIRD !!",
     finalBossIncomingText: "!! FINAL BOSS — MOTHER SHIP !!",
     enemyKinds: ["orb"],
-    asteroidsAfterMiniBoss: true,
-    planet: { sprite: null, palette: ["#ff9e6f", "#a83e2e", "#22070a"], ringColor: "rgba(160,210,255,0.55)" },
+    asteroidsAfterMiniBoss: false,
+    planet: { sprite: "planetSprite", palette: ["#c8a8ff", "#5b3aa8", "#1a0a2a"], ringColor: "rgba(190,170,255,0.55)" },
+    outroPrompt: "CONTINUE",
+    nextLevel: 3,
+    music: "l2"
+  },
+  {
+    id: 3,
+    name: "Dimensional City",
+    bossScore: 15000,
+    semiBossScore: 55000,
+    finalBossScore: 110000,
+    finalBossLevelTier: 30,
+    bossSprite: "tenticleSkull",
+    bossSpriteScale: 1.0,
+    semiBossSprite: "technoDemon",
+    finalBossSprite: "dimensionalBoss",
+    bossHp: Math.round(BOSS_HP * 2.5) + 20000,
+    semiBossHp: Math.round(SEMIBOSS_HP * 1.7) + 20000,
+    finalBossHp: Math.round(FINAL_BOSS_HP * 1.4) + 20000,
+    bossLabel: "MINI-BOSS — TENTICLE SKULL",
+    semiBossLabel: "SEMI-FINAL BOSS — TECHNO DEMON",
+    finalBossLabel: "FINAL BOSS — DIMENSIONAL HORROR",
+    bossIncomingText: "!! MINI-BOSS — TENTICLE SKULL !!",
+    semiBossIncomingText: "!! SEMI-FINAL BOSS — TECHNO DEMON !!",
+    finalBossIncomingText: "!! FINAL BOSS — DIMENSIONAL HORROR !!",
+    enemyKinds: ["tenticle"],
+    asteroidsAfterMiniBoss: false,
+    planet: { sprite: "planetSprite", palette: ["#c8a8ff", "#4a2880", "#150525"], ringColor: "rgba(220,200,255,0.6)" },
     outroPrompt: "MISSION COMPLETE",
     nextLevel: null,
-    music: "l2"
+    music: "l3"
   }
 ];
 
@@ -194,6 +256,27 @@ addEventListener("keydown", e => {
     return;
   }
 
+  // Pause-menu audio submenu intercepts arrow-keys / Esc so they don't leak into gameplay.
+  if (state.paused && state.audioMenu) {
+    if (k === "escape") {
+      e.preventDefault();
+      closeAudioMenu();
+      return;
+    }
+    const am = state.audioMenu;
+    const rows = ["bgm", "weapon", "sfx"];
+    if (k === "arrowup" || k === "arrowdown") {
+      e.preventDefault();
+      am.focus = (am.focus + (k === "arrowup" ? -1 : 1) + rows.length) % rows.length;
+      return;
+    }
+    if (k === "arrowleft" || k === "arrowright") {
+      e.preventDefault();
+      nudgeVolume(rows[am.focus], k === "arrowleft" ? -1 : 1);
+      return;
+    }
+  }
+
   // Pause-menu cheat-code entry intercepts alpha/num/nav keys EXCEPT 'p' and 'x'
   // so the user can always close the cheat entry / unpause / mute regardless.
   if (state.paused && state.cheatEntry) {
@@ -211,12 +294,30 @@ addEventListener("keydown", e => {
     }
   }
 
-  // While paused with NO cheat entry open, Enter opens the cheat-code entry
-  // (mirrors clicking the on-screen CHEAT CODE button — desktop convenience).
-  if (state.paused && !state.cheatEntry && k === "enter") {
-    e.preventDefault();
-    openCheatEntry();
-    return;
+  // While paused with no submenu open: Esc unpauses; arrows / WASD switch focus
+  // between CHEAT CODE and AUDIO; Enter activates the focused button.
+  if (state.paused && !state.cheatEntry && !state.audioMenu) {
+    if (k === "escape") {
+      e.preventDefault();
+      togglePause();
+      return;
+    }
+    if (k === "arrowleft" || k === "a" || k === "arrowup" || k === "w") {
+      e.preventDefault();
+      state.pauseSel = "cheat";
+      return;
+    }
+    if (k === "arrowright" || k === "d" || k === "arrowdown" || k === "s") {
+      e.preventDefault();
+      state.pauseSel = "audio";
+      return;
+    }
+    if (k === "enter" || k === " ") {
+      e.preventDefault();
+      if (state.pauseSel === "audio") openAudioMenu();
+      else openCheatEntry();
+      return;
+    }
   }
 
   // Title-screen cheat-code capture. Silent — not shown publicly.
@@ -250,22 +351,87 @@ function togglePause() {
   state.paused = !state.paused;
   if (state.paused) {
     audio.pauseMusic();
-    // Cheat entry is opt-in via the on-screen "CHEAT CODE" button so 'p' isn't eaten.
+    // Cheat entry / audio menu are opt-in via on-screen buttons so 'p' isn't eaten.
     state.cheatEntry = null;
+    state.audioMenu = null;
+    if (!state.pauseSel) state.pauseSel = "cheat";
   } else {
     audio.resumeMusic();
     state.cheatEntry = null;
+    state.audioMenu = null;
   }
 }
 
-// Pause-menu "CHEAT CODE" button geometry — clicking it opens the entry boxes.
-function cheatButtonRect() {
-  const w = 200, h = 36;
-  return { x: (W - w) / 2, y: 132, w, h };
+// Pause-menu top-row buttons: CHEAT CODE on the left, AUDIO on the right.
+function pauseButtonRects() {
+  const w = 190, h = 36, gap = 16;
+  const totalW = w * 2 + gap;
+  const x0 = (W - totalW) / 2;
+  const y = 132;
+  return {
+    cheat: { x: x0,             y, w, h },
+    audio: { x: x0 + w + gap,   y, w, h }
+  };
+}
+function cheatButtonRect() { return pauseButtonRects().cheat; }
+function audioButtonRect() { return pauseButtonRects().audio; }
+
+// Audio submenu geometry — three rows, each with a "−" button, a value display,
+// and a "+" button. Returned shape includes hit-rects for pointer handling.
+function audioMenuRects() {
+  const rows = ["bgm", "weapon", "sfx"];
+  const rowH = 44, gap = 6;
+  const startY = 184;
+  const labelW = 110, btnW = 38, valW = 70;
+  const totalW = labelW + btnW + valW + btnW + 16;
+  const x0 = (W - totalW) / 2;
+  const out = [];
+  for (let i = 0; i < rows.length; i++) {
+    const y = startY + i * (rowH + gap);
+    out.push({
+      kind: rows[i],
+      y,
+      h: rowH,
+      label:  { x: x0,                        y, w: labelW, h: rowH },
+      minus:  { x: x0 + labelW,               y, w: btnW,   h: rowH },
+      value:  { x: x0 + labelW + btnW + 4,    y, w: valW,   h: rowH },
+      plus:   { x: x0 + labelW + btnW + valW + 8, y, w: btnW,   h: rowH }
+    });
+  }
+  return out;
+}
+const AUDIO_LABELS = { bgm: "MUSIC", weapon: "WEAPONS", sfx: "SFX" };
+
+let _audioPreviewAt = 0;
+function audioPreviewSfx(kind) {
+  // Throttle so holding +/- doesn't stack a wall of sounds.
+  const now = performance.now();
+  if (now - _audioPreviewAt < 140) return;
+  _audioPreviewAt = now;
+  if (kind === "weapon") audio.playSfx && audio.playSfx("small");
+  else if (kind === "sfx") audio.playSfx && audio.playSfx("enemyDie");
+  // No preview for bgm — track volume changes live.
+}
+
+function nudgeVolume(kind, dir) {
+  const cur = audio.getVolume(kind);
+  const next = Math.max(0, Math.min(1, Math.round((cur + dir * 0.1) * 10) / 10));
+  audio.setVolume(kind, next);
+  if (next !== cur) audioPreviewSfx(kind);
+}
+
+function openAudioMenu() {
+  if (!state.paused) return;
+  state.cheatEntry = null;
+  state.audioMenu = { focus: 0 };
+}
+function closeAudioMenu() {
+  state.audioMenu = null;
 }
 
 function openCheatEntry() {
   if (!state.paused) return;
+  state.audioMenu = null;
   state.cheatEntry = { letters: ["A", "A", "A", "A"], pos: 0 };
 }
 
@@ -305,7 +471,7 @@ function entryBoxRects() {
   const boxW = 70, boxH = 86, gap = 18;
   const totalW = boxW * 3 + gap * 2;
   const bx = (960 - totalW) / 2;
-  const y = 250;
+  const y = 370;
   const rects = [];
   for (let i = 0; i < 3; i++) {
     rects.push({ i, x: bx + i * (boxW + gap), y, w: boxW, h: boxH });
@@ -393,13 +559,35 @@ const audio = (() => {
   // Each track stays connected to the analyser; only the playing one produces output.
   const TRACKS = {
     l1: { src: "audio/Artificial Savior.mp3", el: null, srcNode: null, available: true },
-    l2: { src: "audio/AS L2.mp3",             el: null, srcNode: null, available: true }
+    l2: { src: "audio/AS LVL2.mp3",           el: null, srcNode: null, available: true },
+    l3: { src: "audio/AS L3.mp3",             el: null, srcNode: null, available: true }
   };
   let activeKey = "l1";
   let muted = false;
   let started = false;
-  const masterVolume = 0.55;
+  const MASTER_BGM_BASE = 0.55;
   let crossfade = null; // { from, to, t, dur }
+
+  // Persisted volume settings (0..1 each). Multiplies into the relevant signal path.
+  const VOL_KEY = "artificialSaviorVolumes";
+  const vols = { bgm: 1, weapon: 1, sfx: 1 };
+  (function loadVols() {
+    try {
+      const raw = localStorage.getItem(VOL_KEY);
+      if (!raw) return;
+      const obj = JSON.parse(raw);
+      for (const k of ["bgm", "weapon", "sfx"]) {
+        const v = obj && typeof obj[k] === "number" ? obj[k] : null;
+        if (v !== null && isFinite(v)) vols[k] = Math.max(0, Math.min(1, v));
+      }
+    } catch (e) { /* ignore corrupt entry */ }
+  })();
+  function saveVols() {
+    try { localStorage.setItem(VOL_KEY, JSON.stringify(vols)); } catch (e) {}
+  }
+
+  // Per-category SFX gain buses — created lazily once an AudioContext exists.
+  let weaponBus = null, sfxBus = null;
 
   function ensureTrack(key) {
     const tr = TRACKS[key];
@@ -422,6 +610,14 @@ const audio = (() => {
       try { actx = new C(); } catch (e) { return null; }
     }
     if (actx.state === "suspended") actx.resume();
+    if (!weaponBus) {
+      try {
+        weaponBus = actx.createGain(); weaponBus.gain.value = vols.weapon;
+        weaponBus.connect(actx.destination);
+        sfxBus = actx.createGain(); sfxBus.gain.value = vols.sfx;
+        sfxBus.connect(actx.destination);
+      } catch (e) { weaponBus = null; sfxBus = null; }
+    }
     return actx;
   }
 
@@ -443,37 +639,37 @@ const audio = (() => {
     return buf;
   }
 
-  function sfxSmall(ac) {
+  function sfxSmall(ac, dest) {
     // Tiny "pew" — short high square blip.
     const o = ac.createOscillator();
     o.type = "square";
     const now = ac.currentTime;
     o.frequency.setValueAtTime(1400, now);
     o.frequency.exponentialRampToValueAtTime(700, now + 0.05);
-    const g = envGain(ac, 0.03, 0.02, 0.05);
-    o.connect(g).connect(ac.destination);
+    const g = envGain(ac, 0.015, 0.02, 0.05);
+    o.connect(g).connect(dest);
     o.start(); o.stop(now + 0.09);
   }
 
-  function sfxLarge(ac) {
+  function sfxLarge(ac, dest) {
     // Robust, heavier thump — triangle body + square snap.
     const now = ac.currentTime;
     const tri = ac.createOscillator(); tri.type = "triangle";
     tri.frequency.setValueAtTime(320, now);
     tri.frequency.exponentialRampToValueAtTime(120, now + 0.18);
-    const g1 = envGain(ac, 0.085, 0.05, 0.18);
-    tri.connect(g1).connect(ac.destination);
+    const g1 = envGain(ac, 0.042, 0.05, 0.18);
+    tri.connect(g1).connect(dest);
     tri.start(); tri.stop(now + 0.25);
 
     const sq = ac.createOscillator(); sq.type = "square";
     sq.frequency.setValueAtTime(180, now);
     sq.frequency.exponentialRampToValueAtTime(70, now + 0.12);
-    const g2 = envGain(ac, 0.045, 0.02, 0.12);
-    sq.connect(g2).connect(ac.destination);
+    const g2 = envGain(ac, 0.022, 0.02, 0.12);
+    sq.connect(g2).connect(dest);
     sq.start(); sq.stop(now + 0.18);
   }
 
-  function sfxLaser(ac) {
+  function sfxLaser(ac, dest) {
     // Energy ray — saw sweeping down through a resonant lowpass.
     const now = ac.currentTime;
     const o = ac.createOscillator(); o.type = "sawtooth";
@@ -483,12 +679,12 @@ const audio = (() => {
     lp.type = "lowpass"; lp.Q.value = 12;
     lp.frequency.setValueAtTime(2200, now);
     lp.frequency.exponentialRampToValueAtTime(500, now + 0.22);
-    const g = envGain(ac, 0.055, 0.05, 0.18);
-    o.connect(lp).connect(g).connect(ac.destination);
+    const g = envGain(ac, 0.027, 0.05, 0.18);
+    o.connect(lp).connect(g).connect(dest);
     o.start(); o.stop(now + 0.28);
   }
 
-  function sfxMissle(ac) {
+  function sfxMissle(ac, dest) {
     // Rocket whoosh — filtered noise + low rumble sweep.
     const now = ac.currentTime;
     const src = ac.createBufferSource();
@@ -498,18 +694,18 @@ const audio = (() => {
     bp.frequency.setValueAtTime(900, now);
     bp.frequency.exponentialRampToValueAtTime(220, now + 0.5);
     const gn = envGain(ac, 0.075, 0.18, 0.35);
-    src.connect(bp).connect(gn).connect(ac.destination);
+    src.connect(bp).connect(gn).connect(dest);
     src.start(); src.stop(now + 0.6);
 
     const o = ac.createOscillator(); o.type = "sine";
     o.frequency.setValueAtTime(220, now);
     o.frequency.exponentialRampToValueAtTime(70, now + 0.5);
     const g2 = envGain(ac, 0.045, 0.20, 0.30);
-    o.connect(g2).connect(ac.destination);
+    o.connect(g2).connect(dest);
     o.start(); o.stop(now + 0.6);
   }
 
-  function sfxExplosion(ac) {
+  function sfxExplosion(ac, dest) {
     // Big boom — loud low thump + sustained noise tail.
     const now = ac.currentTime;
     const src = ac.createBufferSource();
@@ -519,18 +715,18 @@ const audio = (() => {
     lp.frequency.setValueAtTime(1800, now);
     lp.frequency.exponentialRampToValueAtTime(180, now + 0.9);
     const gn = envGain(ac, 0.55, 0.25, 0.9);
-    src.connect(lp).connect(gn).connect(ac.destination);
+    src.connect(lp).connect(gn).connect(dest);
     src.start(); src.stop(now + 1.2);
 
     const o = ac.createOscillator(); o.type = "sine";
     o.frequency.setValueAtTime(140, now);
     o.frequency.exponentialRampToValueAtTime(40, now + 0.9);
     const g2 = envGain(ac, 0.55, 0.15, 0.9);
-    o.connect(g2).connect(ac.destination);
+    o.connect(g2).connect(dest);
     o.start(); o.stop(now + 1.1);
   }
 
-  function sfxEnemyShot(ac) {
+  function sfxEnemyShot(ac, dest) {
     // Dark laser-style enemy shot — saw sweeping through a resonant lowpass,
     // tuned lower and quieter than the player's laser.
     const now = ac.currentTime;
@@ -542,11 +738,11 @@ const audio = (() => {
     lp.frequency.setValueAtTime(1200, now);
     lp.frequency.exponentialRampToValueAtTime(280, now + 0.22);
     const g = envGain(ac, 0.025, 0.05, 0.18);
-    o.connect(lp).connect(g).connect(ac.destination);
+    o.connect(lp).connect(g).connect(dest);
     o.start(); o.stop(now + 0.28);
   }
 
-  function sfxEnemyDie(ac) {
+  function sfxEnemyDie(ac, dest) {
     // Small explosion — brief noise burst + low thump, no screen shake.
     const now = ac.currentTime;
     const src = ac.createBufferSource();
@@ -556,18 +752,18 @@ const audio = (() => {
     lp.frequency.setValueAtTime(1400, now);
     lp.frequency.exponentialRampToValueAtTime(260, now + 0.22);
     const gn = envGain(ac, 0.22, 0.06, 0.22);
-    src.connect(lp).connect(gn).connect(ac.destination);
+    src.connect(lp).connect(gn).connect(dest);
     src.start(); src.stop(now + 0.32);
 
     const o = ac.createOscillator(); o.type = "sine";
     o.frequency.setValueAtTime(210, now);
     o.frequency.exponentialRampToValueAtTime(70, now + 0.22);
     const g2 = envGain(ac, 0.20, 0.04, 0.2);
-    o.connect(g2).connect(ac.destination);
+    o.connect(g2).connect(dest);
     o.start(); o.stop(now + 0.28);
   }
 
-  function sfxNukeScream(ac) {
+  function sfxNukeScream(ac, dest) {
     // Death-scream: starts as a sharp wail (~700 Hz), gargles down through the
     // throat, then breaks into a wet rasp before fading. Lower in the mix than
     // before so it doesn't trample the explosion+missile SFX.
@@ -586,7 +782,7 @@ const audio = (() => {
     gnMain.gain.exponentialRampToValueAtTime(0.16, now + 0.04);
     gnMain.gain.exponentialRampToValueAtTime(0.09, now + 0.55);
     gnMain.gain.exponentialRampToValueAtTime(0.0001, now + dur);
-    formant.connect(gnMain).connect(ac.destination);
+    formant.connect(gnMain).connect(dest);
 
     // Two voices: one sawtooth (vocal cord buzz), one square (chip-tune edge),
     // both pitch-bending downward with a wider, slower vibrato for "agony".
@@ -619,11 +815,22 @@ const audio = (() => {
     gnNoise.gain.exponentialRampToValueAtTime(0.05, now + 0.15);
     gnNoise.gain.exponentialRampToValueAtTime(0.09, now + 0.85);
     gnNoise.gain.exponentialRampToValueAtTime(0.0001, now + dur);
-    src.connect(noiseBp).connect(gnNoise).connect(ac.destination);
+    src.connect(noiseBp).connect(gnNoise).connect(dest);
     src.start(); src.stop(now + dur);
   }
 
-  const SFX = { small: sfxSmall, large: sfxLarge, laser: sfxLaser, missle: sfxMissle, explosion: sfxExplosion, enemyShot: sfxEnemyShot, enemyDie: sfxEnemyDie, nukeScream: sfxNukeScream };
+  // Each entry: { fn, bus: 'weapon' | 'sfx' }. Player projectiles route through weaponBus,
+  // everything else (enemy shots, explosions, deaths, nuke) routes through sfxBus.
+  const SFX = {
+    small:      { fn: sfxSmall,      bus: "weapon" },
+    large:      { fn: sfxLarge,      bus: "weapon" },
+    laser:      { fn: sfxLaser,      bus: "weapon" },
+    missle:     { fn: sfxMissle,     bus: "sfx"    },
+    explosion:  { fn: sfxExplosion,  bus: "sfx"    },
+    enemyShot:  { fn: sfxEnemyShot,  bus: "sfx"    },
+    enemyDie:   { fn: sfxEnemyDie,   bus: "sfx"    },
+    nukeScream: { fn: sfxNukeScream, bus: "sfx"    }
+  };
 
   // Analyser hookup for music-reactive visuals — both tracks share one analyser.
   let analyser = null;
@@ -683,7 +890,7 @@ const audio = (() => {
       const tr = TRACKS[activeKey];
       if (!tr || !tr.available || muted || started) return;
       const p = tr.el.play();
-      const onStart = () => { started = true; tr.el.volume = masterVolume; };
+      const onStart = () => { started = true; tr.el.volume = MASTER_BGM_BASE * vols.bgm; };
       if (p && typeof p.then === "function") {
         p.then(onStart).catch(() => { /* retry on next input */ });
       } else {
@@ -756,8 +963,8 @@ const audio = (() => {
       const k = Math.max(0, Math.min(1, crossfade.t / crossfade.dur));
       const fromTr = TRACKS[crossfade.from];
       const toTr = TRACKS[crossfade.to];
-      if (fromTr && fromTr.el) fromTr.el.volume = masterVolume * (1 - k);
-      if (toTr && toTr.el) toTr.el.volume = masterVolume * k;
+      if (fromTr && fromTr.el) fromTr.el.volume = MASTER_BGM_BASE * vols.bgm * (1 - k);
+      if (toTr && toTr.el) toTr.el.volume = MASTER_BGM_BASE * vols.bgm * k;
       if (k >= 1) {
         if (fromTr && fromTr.el) {
           fromTr.el.pause();
@@ -772,8 +979,36 @@ const audio = (() => {
       if (muted) return;
       const ac = ensureCtx();
       if (!ac) return;
-      const fn = SFX[kind];
-      if (fn) fn(ac);
+      const entry = SFX[kind];
+      if (!entry) return;
+      const dest = entry.bus === "weapon" ? (weaponBus || ac.destination) : (sfxBus || ac.destination);
+      entry.fn(ac, dest);
+    },
+    getVolume(kind) {
+      return vols[kind];
+    },
+    setVolume(kind, v) {
+      if (!(kind in vols)) return;
+      v = Math.max(0, Math.min(1, +v || 0));
+      vols[kind] = v;
+      saveVols();
+      if (kind === "bgm") {
+        // Preserve crossfade weights so an in-flight fade doesn't get clobbered.
+        const base = MASTER_BGM_BASE * vols.bgm;
+        if (crossfade) {
+          const k = Math.max(0, Math.min(1, crossfade.t / crossfade.dur));
+          const fromTr = TRACKS[crossfade.from], toTr = TRACKS[crossfade.to];
+          if (fromTr && fromTr.el) fromTr.el.volume = base * (1 - k);
+          if (toTr && toTr.el) toTr.el.volume = base * k;
+        } else {
+          const tr = TRACKS[activeKey];
+          if (tr && tr.el) tr.el.volume = base;
+        }
+      } else if (kind === "weapon") {
+        if (weaponBus) weaponBus.gain.value = v;
+      } else if (kind === "sfx") {
+        if (sfxBus) sfxBus.gain.value = v;
+      }
     },
     getEnergy() { return sampleEnergy(); },
     get muted() { return muted; },
@@ -799,7 +1034,7 @@ function makePlayer(sprites) {
     vx: 0, vy: 0,
     size: s.size,
     img: s.img,
-    speed: 340,
+    speed: 400,
     hp: 10, maxHp: 10,
     weapon: "small",
     unlocked: { small: true, large: false, laser: false, missle: false },
@@ -923,6 +1158,7 @@ const state = {
   hiscores: [],
   entry: null,
   cheatEntry: null,
+  audioMenu: null,
   cheatBuffer: "",
   activeCheat: null,
   godMode: false,
@@ -1078,7 +1314,7 @@ function applyCheat(p) {
       p.tier = 1 + levels;
       p.maxHp = 10 + 3 * levels;
       p.hp = p.maxHp;
-      p.speed = 340 + 20 * levels;
+      p.speed = 400 + 20 * levels;
       p.cooldownMul = Math.pow(0.9, levels);
       p.damageBonus = levels;
       p.nextUpgrade = UPGRADE_INTERVAL * (levels + 1);
@@ -1167,6 +1403,9 @@ function spawnFinalBoss() {
   const sprite = state.sprites[lvl.finalBossSprite];
   const hasImg = !!(sprite && sprite.img);
   const isMotherShip = lvl.finalBossSprite === "motherShip";
+  // Dimensional Horror (L3) tracks the player like Harbinger AND fires Mother
+  // Ship homing beams + shockwaves on top — flagged via dimensionalCombo.
+  const isDimensional = lvl.finalBossSprite === "dimensionalBoss";
   const boss = {
     x: W + 260, y: H / 2,
     vx: -130, vy: 0,
@@ -1182,10 +1421,13 @@ function spawnFinalBoss() {
     entering: true,
     phase: 0,
     t: 0,
-    finalBossSprite: lvl.finalBossSprite,    // "finalBoss" (Harbinger) or "motherShip"
+    finalBossSprite: lvl.finalBossSprite,    // "finalBoss" (Harbinger), "motherShip", or "dimensionalBoss"
     isMotherShip,
-    motherShipBurstT: MOTHERSHIP_LASER_INTERVAL * 0.75, // first burst ~3s after entry
-    motherShipShockT: MOTHERSHIP_SHOCKWAVE_INTERVAL * 0.6,
+    dimensionalCombo: isDimensional,
+    // Beam/shockwave timers — used by Mother Ship and by Dimensional Horror's combo mode.
+    // Combo mode runs at ~70% of MS cadence so the chase + spread + ring + beams stay survivable.
+    motherShipBurstT: (isDimensional ? MOTHERSHIP_LASER_INTERVAL * 1.4 : MOTHERSHIP_LASER_INTERVAL * 0.75),
+    motherShipShockT: (isDimensional ? MOTHERSHIP_SHOCKWAVE_INTERVAL * 1.1 : MOTHERSHIP_SHOCKWAVE_INTERVAL * 0.6),
     motherShipBurstQueue: 0,
     motherShipBurstGapT: 0,
     motherShipAnchorX: W * 0.72,
@@ -1193,7 +1435,7 @@ function spawnFinalBoss() {
   };
   state.enemies.push(boss);
   state.boss = boss;
-  // Shield-drop schedule only applies to Harbinger (carry over original behaviour).
+  // Shield-drop schedule applies to Harbinger AND Dimensional Horror (Mother Ship is exempt).
   if (!isMotherShip) {
     boss.nextShieldHp = boss.hp - (FINAL_BOSS_SHIELD_MIN + Math.random() * (FINAL_BOSS_SHIELD_MAX - FINAL_BOSS_SHIELD_MIN));
   }
@@ -1504,7 +1746,22 @@ function finalBossBurst(e) {
 
 // ---------- Systems ----------
 
+function autoSwitchFromLaser(p) {
+  // If laser is selected and energy is fully depleted (from laser drain or shield-hit drain),
+  // auto-fall back to the highest-tier non-laser weapon the player owns. God Mode bypasses.
+  if (!p || p.weapon !== "laser") return;
+  if (p.energy > 0) return;
+  if (state.godMode || (p.godPickupT || 0) > 0) return;
+  const next = p.unlocked && p.unlocked.large ? "large" : "small";
+  if (next === p.weapon) return;
+  p.weapon = next;
+  p._laserOut = false;
+  showToast(`ENERGY DEPLETED — ${WEAPONS[next].label}`, "#ffd66b");
+}
+
 function fireWeapon(p, dt) {
+  // Catch shield-drain depletion from prior frame (laser → fallback weapon).
+  autoSwitchFromLaser(p);
   // Edge-triggered nuke on weapon-4 / "missle" key. Fires alongside the primary
   // weapon (does not switch p.weapon). Consumes 1 of up to NUKE_MAX charges.
   const nukeHeld = keys.has("4");
@@ -1535,6 +1792,7 @@ function fireWeapon(p, dt) {
   const godActive = state.godMode || (p.godPickupT > 0);
   if (isLaser && wantFire && p.energy > 0 && !godActive) {
     p.energy = Math.max(0, p.energy - LASER_DRAIN * dt);
+    if (p.energy <= 0) autoSwitchFromLaser(p);
   } else {
     p.energy = Math.min(p.maxEnergy, (p.energy || 0) + LASER_REGEN * dt);
   }
@@ -1612,6 +1870,9 @@ function detonateNuke(p, w) {
     if (b.hp <= 0) killBoss(b);
   }
   // Vaporise every non-boss enemy on screen, awarding half score + counting kills.
+  // Each vaporised enemy rolls the same pickup-drop chance as a regular kill so
+  // nuking a wave can still produce loot. Chance is half the normal rate so a
+  // full nuke doesn't carpet the screen with pickups.
   let killed = 0;
   for (const e of state.enemies) {
     if (e.isBoss || e.hp <= 0) continue;
@@ -1619,6 +1880,8 @@ function detonateNuke(p, w) {
     burst(e.x, e.y, "#fff7d6", 12);
     state.score += (e.scoreReward || 100) >> 1;
     state.kills = (state.kills || 0) + 1;
+    const dropChance = 0.5 * (0.15 + Math.min(0.25, (state.player.tier - 1) * 0.04));
+    if (Math.random() < dropChance) spawnPickup(e.x, e.y, state.player.tier);
     e.hp = 0;
     killed++;
   }
@@ -1822,6 +2085,8 @@ function updateHomingBeams(dt) {
       const dx = p.x - beam.x, dy = p.y - beam.y;
       if (dx * dx + dy * dy < (beam.radius + p.size * 0.35) * (beam.radius + p.size * 0.35)) {
         if (p.shieldT > 0) {
+          p.energy = Math.max(0, (p.energy || 0) - beam.damage);
+          if (p.energy <= 0) p.shieldT = 0;
           p.invuln = 0.4;
           burst(p.x, p.y, "#7fd6ff", 14);
         } else {
@@ -1849,6 +2114,8 @@ function updateShockwave(dt) {
     if (d >= sw.r - sw.thickness && d <= sw.r + sw.thickness) {
       if (p.invuln <= 0) {
         if (p.shieldT > 0) {
+          p.energy = Math.max(0, (p.energy || 0) - sw.damage);
+          if (p.energy <= 0) p.shieldT = 0;
           p.invuln = 0.4;
           burst(p.x, p.y, "#7fd6ff", 18);
         } else {
@@ -1956,8 +2223,8 @@ function collectPickup(p, pk) {
     showToast("WEAPON BOOST  +25 ENERGY", "#ffd27a");
     burst(pk.x, pk.y, "#ffd27a", 18);
   } else if (pk.type === "shield") {
-    p.shieldT = SHIELD_DURATION;
-    showToast("SHIELD +25s", "#7fd6ff");
+    p.shieldT += SHIELD_DURATION;
+    showToast(`SHIELD +${SHIELD_DURATION}s (${Math.ceil(p.shieldT)}s)`, "#7fd6ff");
     burst(pk.x, pk.y, "#7fd6ff", 24);
     audio.playSfx && audio.playSfx("laser");
   } else if (pk.type === "godmode") {
@@ -2100,7 +2367,7 @@ function update(dt) {
   }
 
   // Asteroids (L2): start spawning after the Cube Mini-Boss is defeated.
-  if (state.level && state.level.asteroidsAfterMiniBoss && state.cubeBossDefeated && !state.outro) {
+  if (state.level && state.level.asteroidsAfterMiniBoss && state.bossDefeated && !state.outro) {
     state.asteroidSpawnTimer -= dt;
     if (state.asteroidSpawnTimer <= 0) {
       spawnAsteroid();
@@ -2183,6 +2450,29 @@ function update(dt) {
                     : semi   ? (2.4 - (1 - e.hp / e.maxHp) * 1.2)
                              : (3.4 - (1 - e.hp / e.maxHp) * 1.4);
         }
+        // Dimensional Horror combo: layer Mother Ship homing beams + shockwaves
+        // on top of Harbinger's chase + spread + ring patterns.
+        if (e.dimensionalCombo) {
+          e.motherShipBurstT -= dt;
+          if (e.motherShipBurstT <= 0 && !e.entering) {
+            motherShipFireBurst(e);
+            e.motherShipBurstT = MOTHERSHIP_LASER_INTERVAL * 1.4;
+          }
+          if (e.motherShipBurstQueue > 0) {
+            e.motherShipBurstGapT -= dt;
+            if (e.motherShipBurstGapT <= 0) {
+              const eyes = motherShipEyeOrigins(e);
+              for (const eye of eyes) motherShipFireBeam(e, eye);
+              e.motherShipBurstQueue -= 1;
+              e.motherShipBurstGapT = MOTHERSHIP_LASER_BURST_GAP;
+            }
+          }
+          e.motherShipShockT -= dt;
+          if (e.motherShipShockT <= 0 && !e.entering && !state.bossShockwave) {
+            motherShipFireShockwave(e);
+            e.motherShipShockT = MOTHERSHIP_SHOCKWAVE_INTERVAL * 1.1;
+          }
+        }
       }
     } else {
       e.x += e.vx * dt;
@@ -2227,7 +2517,9 @@ function update(dt) {
     } else if (p.invuln <= 0) {
       if (Math.abs(b.x - p.x) < p.size * 0.4 && Math.abs(b.y - p.y) < p.size * 0.4) {
         if (p.shieldT > 0) {
-          // Shield absorbs the hit.
+          // Shield absorbs the hit but drains energy equal to the damage.
+          p.energy = Math.max(0, (p.energy || 0) - b.damage);
+          if (p.energy <= 0) p.shieldT = 0;
           b.life = 0; p.invuln = 0.2;
           burst(p.x, p.y, "#7fd6ff", 14);
         } else {
@@ -2245,6 +2537,8 @@ function update(dt) {
       if (Math.abs(e.x - p.x) < (e.size + p.size) * 0.4 && Math.abs(e.y - p.y) < (e.size + p.size) * 0.4) {
         const dmg = e.isBoss ? (e.kind === "final" ? 10 : e.kind === "semi" ? 7 : 5) : 3;
         if (p.shieldT > 0) {
+          p.energy = Math.max(0, (p.energy || 0) - dmg);
+          if (p.energy <= 0) p.shieldT = 0;
           p.invuln = 0.5;
           if (!e.isBoss) { e.hp = 0; audio.playSfx("enemyDie"); state.kills = (state.kills || 0) + 1; }
           burst((e.x + p.x) / 2, (e.y + p.y) / 2, "#7fd6ff", 24);
@@ -2285,6 +2579,8 @@ function update(dt) {
       const dx = a.x - p.x, dy = a.y - p.y;
       if (dx * dx + dy * dy < r * r) {
         if (p.shieldT > 0) {
+          p.energy = Math.max(0, (p.energy || 0) - ASTEROID_CONTACT_DAMAGE);
+          if (p.energy <= 0) p.shieldT = 0;
           p.invuln = 0.5;
           burst((a.x + p.x) / 2, (a.y + p.y) / 2, "#7fd6ff", 22);
         } else {
@@ -2554,6 +2850,11 @@ function renderBackground() {
     renderStormBackground(e, t);
     return;
   }
+  // L3 — Dimensional City: painted backdrop + animated rifts/sparkles overlay.
+  if (state.level && state.level.id === 3) {
+    renderDimensionalBackground(e, t);
+    return;
+  }
 
   // Base hue drifts slowly; bass pushes it warmer, treble nudges it cooler.
   const baseHue = (220 + t * 6 + e.bass * 60 - e.treble * 30) % 360;
@@ -2615,24 +2916,61 @@ function renderBackground() {
   }
 }
 
+// Mirror-tiled scrolling cover-fit background. Scrolls leftward at speedPxSec
+// to mimic the ship flying past static scenery; mirrors every other tile so the
+// loop seam is invisible even when the source PNG isn't tileable.
+function drawScrollingBg(img, t, speedPxSec) {
+  const iw = img.width, ih = img.height;
+  const scale = Math.max(W / iw, H / ih);
+  const dw = iw * scale, dh = ih * scale;
+  const dy = (H - dh) / 2;
+  const period = dw * 2;
+  const t01 = ((t * speedPxSec) % period + period) % period; // [0, period)
+  const baseX = -t01;
+  for (let i = 0; i < 3; i++) {
+    const x = baseX + i * dw;
+    if (x >= W || x + dw <= 0) continue;
+    const flip = (i % 2) === 1;
+    if (flip) {
+      ctx.save();
+      ctx.translate(x + dw, dy);
+      ctx.scale(-1, 1);
+      ctx.drawImage(img, 0, 0, dw, dh);
+      ctx.restore();
+    } else {
+      ctx.drawImage(img, x, dy, dw, dh);
+    }
+  }
+}
+
 // L2 electrical-storm backdrop. Heavy purple/teal cloud gradient + drifting
 // lightning bolts that flash the screen, plus rain streaks and a faint glow.
 function renderStormBackground(e, t) {
-  // Cloud gradient (rolling thunderhead).
-  const sky = ctx.createLinearGradient(0, 0, 0, H);
-  sky.addColorStop(0,    "#0a0816");
-  sky.addColorStop(0.45, "#1c1338");
-  sky.addColorStop(0.75, "#241844");
-  sky.addColorStop(1,    "#080612");
-  ctx.fillStyle = sky;
-  ctx.fillRect(0, 0, W, H);
+  // If the painted LV2 backdrop is loaded, use it as the base layer in place
+  // of the procedural sky gradient. The cloud-lobe glow + rain + lightning
+  // continue to animate over it for live storm activity.
+  const bg = state.sprites && state.sprites.lv2Bg;
+  if (bg && bg.img) {
+    drawScrollingBg(bg.img, t, 28);
+  } else {
+    const sky = ctx.createLinearGradient(0, 0, 0, H);
+    sky.addColorStop(0,    "#0a0816");
+    sky.addColorStop(0.45, "#1c1338");
+    sky.addColorStop(0.75, "#241844");
+    sky.addColorStop(1,    "#080612");
+    ctx.fillStyle = sky;
+    ctx.fillRect(0, 0, W, H);
+  }
 
   // Drifting cloud lobes — translucent plum + teal blobs that morph slowly.
+  // Slightly dimmer when layered on the painted backdrop so they enhance,
+  // not drown out, the underlying art.
+  const lobeBoost = (bg && bg.img) ? 0.55 : 1.0;
   const baseHue = (260 + Math.sin(t * 0.07) * 20) % 360;
   const lobes = [
-    { x: W * (0.25 + Math.sin(t * 0.11) * 0.06), y: H * 0.30, r: W * 0.45, hue: baseHue,           a: 0.18 + e.bass * 0.18 },
-    { x: W * (0.70 + Math.cos(t * 0.09) * 0.07), y: H * 0.55, r: W * 0.50, hue: (baseHue + 40)%360, a: 0.14 + e.mid  * 0.18 },
-    { x: W * (0.50 + Math.sin(t * 0.05) * 0.05), y: H * 0.80, r: W * 0.55, hue: (baseHue + 80)%360, a: 0.12 + e.level * 0.15 }
+    { x: W * (0.25 + Math.sin(t * 0.11) * 0.06), y: H * 0.30, r: W * 0.45, hue: baseHue,             a: (0.18 + e.bass  * 0.18) * lobeBoost },
+    { x: W * (0.70 + Math.cos(t * 0.09) * 0.07), y: H * 0.55, r: W * 0.50, hue: (baseHue + 40) % 360, a: (0.14 + e.mid   * 0.18) * lobeBoost },
+    { x: W * (0.50 + Math.sin(t * 0.05) * 0.05), y: H * 0.80, r: W * 0.55, hue: (baseHue + 80) % 360, a: (0.12 + e.level * 0.15) * lobeBoost }
   ];
   ctx.save();
   ctx.globalCompositeOperation = "lighter";
@@ -2718,6 +3056,71 @@ function renderStormBackground(e, t) {
   }
 }
 
+function renderDimensionalBackground(e, t) {
+  // Painted "Dimensional City" backdrop as the base layer (cover-fit). Falls back
+  // to a deep-violet gradient if the optional PNG isn't loaded.
+  const bg = state.sprites && state.sprites.dimensionalCity;
+  if (bg && bg.img) {
+    drawScrollingBg(bg.img, t, 42);
+  } else {
+    const sky = ctx.createLinearGradient(0, 0, 0, H);
+    sky.addColorStop(0, "#0a0418");
+    sky.addColorStop(0.55, "#1a0838");
+    sky.addColorStop(1, "#04020c");
+    ctx.fillStyle = sky;
+    ctx.fillRect(0, 0, W, H);
+  }
+
+  // Drifting dimensional rifts — vertical violet/teal slits that pulse with the bass.
+  ctx.save();
+  ctx.globalCompositeOperation = "lighter";
+  const rifts = 4;
+  for (let i = 0; i < rifts; i++) {
+    const phase = i * 0.41 + t * (0.08 + i * 0.03);
+    const cx = (W * 0.18) + ((Math.sin(phase) * 0.5 + 0.5) * W * 0.7);
+    const cy = H * (0.28 + 0.4 * (i / rifts)) + Math.cos(phase * 1.3) * 30;
+    const h = H * (0.55 + 0.18 * Math.sin(t * 0.6 + i));
+    const w = 26 + e.bass * 32 + 8 * Math.sin(t * 2.1 + i);
+    const hue = (280 + i * 22 + e.mid * 30) % 360;
+    const a = 0.18 + e.bass * 0.30 + 0.10 * Math.sin(t * 1.5 + i);
+    const g = ctx.createLinearGradient(cx - w / 2, 0, cx + w / 2, 0);
+    g.addColorStop(0, "hsla(0,0%,0%,0)");
+    g.addColorStop(0.5, `hsla(${hue}, 90%, 65%, ${a})`);
+    g.addColorStop(1, "hsla(0,0%,0%,0)");
+    ctx.fillStyle = g;
+    ctx.fillRect(cx - w / 2, cy - h / 2, w, h);
+  }
+  ctx.restore();
+
+  // Treble-driven sparkle motes — interdimensional dust drifting leftward.
+  const sparkle = e.treble;
+  for (const s of state.stars) {
+    const sx = s.x;
+    const sy = (s.y + (1 - s.z) * 12 * Math.sin(t * 1.4 + s.y * 0.03)) % H;
+    const bright = 0.20 + s.z * 0.45 + sparkle * s.z * 0.7;
+    const size = s.z * (1 + sparkle * 0.8);
+    const hue = 280 + (s.y % 60);
+    ctx.fillStyle = `hsla(${hue}, 80%, 75%, ${Math.min(1, bright)})`;
+    ctx.fillRect(sx, sy, size, size);
+  }
+
+  // Bass-driven horizon flare from below (city glow pulse).
+  if (e.bass > 0.10) {
+    const pg = ctx.createRadialGradient(W / 2, H * 0.92, 30, W / 2, H * 0.92, W * 0.75);
+    pg.addColorStop(0, `rgba(200, 140, 255, ${0.05 + e.bass * 0.22})`);
+    pg.addColorStop(1, "rgba(0,0,0,0)");
+    ctx.fillStyle = pg;
+    ctx.fillRect(0, 0, W, H);
+  }
+
+  // Subtle vignette for legibility against bright signage in the painted city.
+  const vg = ctx.createRadialGradient(W / 2, H / 2, H * 0.35, W / 2, H / 2, H * 0.85);
+  vg.addColorStop(0, "rgba(0,0,0,0)");
+  vg.addColorStop(1, "rgba(0,0,0,0.45)");
+  ctx.fillStyle = vg;
+  ctx.fillRect(0, 0, W, H);
+}
+
 function makeLightningBolt() {
   // Jagged top-to-bottom polyline with a few side forks.
   const startX = 50 + Math.random() * (W - 100);
@@ -2749,6 +3152,9 @@ function makeLightningBolt() {
 }
 
 function render() {
+  // Reset to the world transform (logical 960×540) before drawing each frame.
+  // resizeCanvasBacking() updates renderScale on resize/fullscreen.
+  ctx.setTransform(renderScale, 0, 0, renderScale, 0, 0);
   renderBackground();
 
   if (!state.loaded) {
@@ -3021,6 +3427,29 @@ function render() {
     ctx.restore();
   }
 
+  // Timer pips above the player: shield seconds and (pickup-only) GOD MODE seconds.
+  // The MICO cheat grants permanent godmode and intentionally has no countdown.
+  {
+    const labels = [];
+    if (p.shieldT > 0) labels.push({ text: `▣ ${Math.ceil(p.shieldT)}s`, color: "#7fd6ff" });
+    if (p.godPickupT > 0) labels.push({ text: `★ ${Math.ceil(p.godPickupT)}s`, color: "#ffd84a" });
+    if (labels.length) {
+      ctx.save();
+      ctx.textAlign = "center"; ctx.textBaseline = "alphabetic";
+      ctx.font = "bold 12px system-ui";
+      let y = p.y - p.size * 0.85 - 6;
+      for (const lab of labels) {
+        ctx.fillStyle = "rgba(0,0,0,0.55)";
+        const w = ctx.measureText(lab.text).width + 10;
+        ctx.fillRect(p.x - w / 2, y - 12, w, 16);
+        ctx.fillStyle = lab.color;
+        ctx.fillText(lab.text, p.x, y);
+        y -= 18;
+      }
+      ctx.restore();
+    }
+  }
+
   // Particles
   for (const pt of state.particles) {
     ctx.globalAlpha = Math.max(0, pt.life * 1.4);
@@ -3138,21 +3567,41 @@ function render() {
     if (state.victory) {
       drawVictoryScreen();
     } else {
-      ctx.fillStyle = "#000b"; ctx.fillRect(0, 0, W, H);
+      // Fiery GAME OVER backdrop. Falls back to a plain dark wash if the
+      // image hasn't loaded (sprite is marked optional).
+      const fire = state.sprites && state.sprites.gameOverFire;
+      if (fire && fire.img) {
+        const iw = fire.img.width, ih = fire.img.height;
+        // Cover the canvas while preserving aspect ratio.
+        const scale = Math.max(W / iw, H / ih);
+        const dw = iw * scale, dh = ih * scale;
+        ctx.drawImage(fire.img, (W - dw) / 2, (H - dh) / 2, dw, dh);
+        // Subtle dark gradient so text/leaderboard stay readable.
+        const grad = ctx.createLinearGradient(0, 0, 0, H);
+        grad.addColorStop(0,   "rgba(0,0,0,0.55)");
+        grad.addColorStop(0.5, "rgba(0,0,0,0.25)");
+        grad.addColorStop(1,   "rgba(0,0,0,0.65)");
+        ctx.fillStyle = grad; ctx.fillRect(0, 0, W, H);
+      } else {
+        ctx.fillStyle = "#000b"; ctx.fillRect(0, 0, W, H);
+      }
       ctx.textAlign = "center"; ctx.textBaseline = "middle";
-      ctx.fillStyle = "#fff";
-      ctx.font = "48px system-ui"; ctx.fillText("GAME OVER", W / 2, 110);
-      ctx.font = "20px system-ui"; ctx.fillStyle = "#cfd6ee";
-      ctx.fillText(`Score: ${state.score}`, W / 2, 150);
+      // Pulsing fiery title.
+      const pulse = 0.7 + 0.3 * Math.sin(state.t * 3.2);
+      ctx.save();
+      ctx.shadowColor = "#ff7a1f"; ctx.shadowBlur = 36 * pulse + 14;
+      ctx.fillStyle = `rgba(255, 230, 200, ${0.92 + 0.08 * pulse})`;
+      ctx.font = "bold 72px system-ui";
+      ctx.fillText("GAME OVER", W / 2, 110);
+      ctx.restore();
+      ctx.font = "20px system-ui"; ctx.fillStyle = "#ffe7c2";
+      ctx.fillText(`Score: ${state.score}`, W / 2, 160);
     }
 
     if (state.entry && !state.entry.submitted) {
       const en = state.entry;
       ctx.fillStyle = "#ffd27a"; ctx.font = "bold 22px system-ui";
-      ctx.fillText("NEW HIGH SCORE — ENTER YOUR INITIALS", W / 2, 200);
-      ctx.fillStyle = "#cfd6ee"; ctx.font = "13px system-ui";
-      ctx.fillText("Type A–Z / 0–9  ·  ← → move  ·  ↑ ↓ cycle  ·  Enter submit", W / 2, 222);
-      ctx.fillText("Touch: tap box to select  ·  tap ▲▼ or swipe ↕ to change  ·  OK to submit", W / 2, 240);
+      ctx.fillText("NEW HIGH SCORE — ENTER YOUR INITIALS", W / 2, 340);
       // Big glowing letter boxes (geometry via entryBoxRects to keep hit-test in sync).
       const rects = entryBoxRects();
       for (const r of rects) {
@@ -3173,6 +3622,10 @@ function render() {
         ctx.fillText("▲", r.x + r.w / 2, r.y - 10);
         ctx.fillText("▼", r.x + r.w / 2, r.y + r.h + 28);
       }
+      // Type / touch hints anchored near the bottom for breathing room.
+      ctx.fillStyle = "#cfd6ee"; ctx.font = "13px system-ui";
+      ctx.fillText("Type A–Z / 0–9  ·  ← → move  ·  ↑ ↓ cycle  ·  Enter submit", W / 2, 500);
+      ctx.fillText("Touch: tap box to select  ·  tap ▲▼ or swipe ↕ to change  ·  OK to submit", W / 2, 520);
     } else if (state.outro && state.continueAvailable) {
       // Intermediate-level outro: CONTINUE prompt is rendered inside drawVictoryScreen.
       ctx.fillStyle = "#8d95ad"; ctx.font = "12px system-ui";
@@ -3183,8 +3636,16 @@ function render() {
     }
 
     // Leaderboard panel — only on the final-level outro / game-over screens.
-    if (!state.outro || !state.continueAvailable) {
-      drawLeaderboard(W / 2 - 170, 360, 340, 160);
+    // Narrower + shifted left on the final outro so it sits clear of the
+    // gold planet rendered on the right half of the canvas. Hidden during
+    // initials entry so the type/touch hints can sit at the bottom.
+    if ((!state.outro || !state.continueAvailable) && !(state.entry && !state.entry.submitted)) {
+      const isFinalOutro = state.outro && !state.continueAvailable;
+      if (isFinalOutro) {
+        drawLeaderboard(60, 360, 320, 160);
+      } else {
+        drawLeaderboard(W / 2 - 170, 360, 340, 160);
+      }
     }
   }
 
@@ -3229,24 +3690,79 @@ function render() {
       ctx.textBaseline = "alphabetic";
       ctx.fillStyle = "#cfd6ee"; ctx.font = "12px system-ui";
       ctx.fillText("Enter / FIRE to submit  ·  Esc to cancel", W / 2, 268);
-    } else {
-      // Opt-in CHEAT CODE button. Click to open entry boxes.
-      const btn = cheatButtonRect();
-      ctx.save();
-      ctx.shadowColor = "#ffd27a"; ctx.shadowBlur = 12;
-      ctx.fillStyle = "#1a2a6c";
-      ctx.fillRect(btn.x, btn.y, btn.w, btn.h);
-      ctx.strokeStyle = "#ffd27a"; ctx.lineWidth = 2;
-      ctx.strokeRect(btn.x, btn.y, btn.w, btn.h);
-      ctx.restore();
-      ctx.fillStyle = "#ffd27a"; ctx.font = "bold 16px system-ui";
-      ctx.textBaseline = "middle";
-      ctx.fillText("◆ CHEAT CODE ◆", W / 2, btn.y + btn.h / 2 + 1);
+    } else if (state.audioMenu) {
+      // AUDIO submenu — three rows of −/value/+ controls.
+      ctx.fillStyle = "#9fd1ff"; ctx.font = "bold 16px system-ui";
       ctx.textBaseline = "alphabetic";
+      ctx.fillText("AUDIO", W / 2, 158);
+      const rows = audioMenuRects();
+      const focus = state.audioMenu.focus | 0;
+      for (let i = 0; i < rows.length; i++) {
+        const r = rows[i];
+        const isFocus = i === focus;
+        const v = audio.getVolume(r.kind);
+        // Label
+        ctx.textAlign = "right"; ctx.textBaseline = "middle";
+        ctx.fillStyle = isFocus ? "#ffd27a" : "#cfd6ee";
+        ctx.font = isFocus ? "bold 16px system-ui" : "16px system-ui";
+        ctx.fillText(AUDIO_LABELS[r.kind], r.label.x + r.label.w - 10, r.y + r.h / 2);
+        // Minus button
+        ctx.fillStyle = "#0b1224";
+        ctx.fillRect(r.minus.x, r.minus.y, r.minus.w, r.minus.h);
+        ctx.strokeStyle = isFocus ? "#ffd27a" : "#ffffff44";
+        ctx.lineWidth = 2;
+        ctx.strokeRect(r.minus.x, r.minus.y, r.minus.w, r.minus.h);
+        ctx.fillStyle = "#fff"; ctx.font = "bold 22px system-ui";
+        ctx.textAlign = "center";
+        ctx.fillText("−", r.minus.x + r.minus.w / 2, r.minus.y + r.minus.h / 2 + 1);
+        // Value bar + percent label
+        ctx.fillStyle = "#0b1224";
+        ctx.fillRect(r.value.x, r.value.y + 8, r.value.w, r.value.h - 16);
+        ctx.strokeStyle = "#ffffff22"; ctx.lineWidth = 1;
+        ctx.strokeRect(r.value.x, r.value.y + 8, r.value.w, r.value.h - 16);
+        ctx.fillStyle = "#5fb8ff";
+        ctx.fillRect(r.value.x + 2, r.value.y + 10, (r.value.w - 4) * v, r.value.h - 20);
+        ctx.fillStyle = "#fff"; ctx.font = "bold 14px system-ui";
+        ctx.fillText(`${Math.round(v * 100)}%`, r.value.x + r.value.w / 2, r.value.y + r.value.h / 2 + 1);
+        // Plus button
+        ctx.fillStyle = "#0b1224";
+        ctx.fillRect(r.plus.x, r.plus.y, r.plus.w, r.plus.h);
+        ctx.strokeStyle = isFocus ? "#ffd27a" : "#ffffff44";
+        ctx.lineWidth = 2;
+        ctx.strokeRect(r.plus.x, r.plus.y, r.plus.w, r.plus.h);
+        ctx.fillStyle = "#fff"; ctx.font = "bold 22px system-ui";
+        ctx.fillText("+", r.plus.x + r.plus.w / 2, r.plus.y + r.plus.h / 2 + 1);
+      }
+      ctx.textBaseline = "alphabetic"; ctx.textAlign = "center";
+      ctx.fillStyle = "#cfd6ee"; ctx.font = "12px system-ui";
+      ctx.fillText("Tap AUDIO again or press Esc to close  ·  ←/→ adjust  ·  ↑/↓ select", W / 2, 332);
+    } else {
+      // Top-row buttons: CHEAT CODE | AUDIO. Click either to open its panel.
+      const btns = pauseButtonRects();
+      const sel = state.pauseSel || "cheat";
+      const drawBtn = (rect, label, accent, focused) => {
+        ctx.save();
+        ctx.shadowColor = accent; ctx.shadowBlur = focused ? 22 : 12;
+        ctx.fillStyle = focused ? "#243a8a" : "#1a2a6c";
+        ctx.fillRect(rect.x, rect.y, rect.w, rect.h);
+        ctx.strokeStyle = accent; ctx.lineWidth = focused ? 3 : 2;
+        ctx.strokeRect(rect.x, rect.y, rect.w, rect.h);
+        ctx.restore();
+        ctx.fillStyle = accent; ctx.font = focused ? "bold 17px system-ui" : "bold 16px system-ui";
+        ctx.textAlign = "center"; ctx.textBaseline = "middle";
+        ctx.fillText(label, rect.x + rect.w / 2, rect.y + rect.h / 2 + 1);
+      };
+      drawBtn(btns.cheat, "◆ CHEAT CODE ◆", "#ffd27a", sel === "cheat");
+      drawBtn(btns.audio, "♪ AUDIO ♪",      "#9fd1ff", sel === "audio");
+      ctx.textBaseline = "alphabetic";
+      // Hint line below the buttons for keyboard controls.
+      ctx.fillStyle = "#9aa3bd"; ctx.font = "12px system-ui"; ctx.textAlign = "center";
+      ctx.fillText("←/→ or A/D to select  ·  Enter to open  ·  Esc to resume",
+        W / 2, btns.cheat.y + btns.cheat.h + 22);
     }
 
     ctx.textBaseline = "alphabetic";
-    drawLeaderboard(W / 2 - 170, 322, 340, 200);
+    if (!state.audioMenu) drawLeaderboard(W / 2 - 170, 322, 340, 200);
   }
 }
 
@@ -3318,8 +3834,40 @@ function drawVictoryScreen() {
     const targetH = H * 0.55;
     const scale = targetH / psSprite.img.height;
     const w = psSprite.img.width * scale, h = psSprite.img.height * scale;
+
+    // Final-victory variant: same planet sprite as the continue screen but
+    // crowned with golden rays + halo and tinted gold via canvas filter.
+    if (isFinal) {
+      ctx.save();
+      ctx.translate(planet.x, planet.y);
+      const rays = 18;
+      const baseR = w * 0.5;
+      for (let i = 0; i < rays; i++) {
+        const a = (i / rays) * Math.PI * 2 + vt * 0.15;
+        const len = baseR * (3.6 + 0.5 * Math.sin(vt * 0.8 + i));
+        const w0 = baseR * 0.08;
+        ctx.fillStyle = `rgba(255, 240, 190, ${0.05 + 0.05 * Math.sin(vt * 1.2 + i)})`;
+        ctx.beginPath();
+        ctx.moveTo(0, 0);
+        ctx.lineTo(Math.cos(a) * len - Math.sin(a) * w0, Math.sin(a) * len + Math.cos(a) * w0);
+        ctx.lineTo(Math.cos(a) * len + Math.sin(a) * w0, Math.sin(a) * len - Math.cos(a) * w0);
+        ctx.closePath(); ctx.fill();
+      }
+      ctx.restore();
+      ctx.save();
+      const halo = ctx.createRadialGradient(planet.x, planet.y, baseR * 0.95,
+                                             planet.x, planet.y, baseR * 2.1);
+      halo.addColorStop(0, "rgba(255, 240, 190, 0.55)");
+      halo.addColorStop(1, "rgba(255, 240, 190, 0)");
+      ctx.fillStyle = halo;
+      ctx.beginPath(); ctx.arc(planet.x, planet.y, baseR * 2.1, 0, Math.PI * 2); ctx.fill();
+      ctx.restore();
+    }
+
     ctx.save();
-    ctx.shadowColor = palette[0]; ctx.shadowBlur = 30;
+    ctx.shadowColor = isFinal ? "#fff7d6" : palette[0];
+    ctx.shadowBlur = isFinal ? 48 : 30;
+    if (isFinal) ctx.filter = "sepia(0.75) hue-rotate(-12deg) saturate(1.7) brightness(1.08)";
     ctx.drawImage(psSprite.img, planet.x - w / 2, planet.y - h / 2, w, h);
     ctx.restore();
     // Update planet.r approx for ship-end-position calculation below.
@@ -3392,7 +3940,7 @@ function drawVictoryScreen() {
   const prog = ease(vt / flightDur);
   const startX = -120, endX = planet.x - planet.r - 60;
   const shipX = startX + (endX - startX) * prog;
-  const shipY = 200 + Math.sin(vt * 1.6) * 8;
+  const shipY = 290 + Math.sin(vt * 1.6) * 8;
   const shipScale = 1.0 - prog * 0.22;
 
   // Engine exhaust trail.
@@ -3443,27 +3991,29 @@ function drawVictoryScreen() {
 
   // Score / kills line.
   ctx.fillStyle = "#cfd6ee"; ctx.font = "20px system-ui";
-  ctx.fillText(`${isFinal ? "Final Score" : "Score"}: ${state.score}`, W / 2, 166);
+  ctx.fillText(`${isFinal ? "Final Score" : "Score"}: ${state.score}`, W / 2, 170);
   ctx.fillStyle = "#9fd1ff"; ctx.font = "16px system-ui";
-  ctx.fillText(`Enemy Ships Destroyed: ${state.kills | 0}`, W / 2, 188);
+  ctx.fillText(`Enemy Ships Destroyed: ${state.kills | 0}`, W / 2, 196);
 
   // Continue prompt for intermediate levels — gated by the post-victory hold so
   // music can crossfade and the player can register the win before advancing.
+  // Anchored near the bottom of the canvas so it never collides with the
+  // mid-screen ship/planet flight composition.
   if (!isFinal && state.continueAvailable) {
     if ((state.outroDelay || 0) > 0) {
       const remaining = Math.ceil(state.outroDelay);
       ctx.fillStyle = "#9fd1ff"; ctx.font = "bold 18px system-ui";
-      ctx.fillText(`LEVEL COMPLETE — ${remaining}…`, W / 2, 218);
+      ctx.fillText(`LEVEL COMPLETE — ${remaining}…`, W / 2, 470);
     } else {
       const cp = 0.6 + 0.4 * Math.sin(vt * 3);
       ctx.save();
       ctx.shadowColor = "#9fd1ff"; ctx.shadowBlur = 18 * cp + 8;
       ctx.fillStyle = `rgba(207, 230, 255, ${0.7 + 0.3 * cp})`;
       ctx.font = "bold 26px system-ui";
-      ctx.fillText(lvl.outroPrompt || "CONTINUE", W / 2, 218);
+      ctx.fillText(lvl.outroPrompt || "CONTINUE", W / 2, 470);
       ctx.restore();
       ctx.fillStyle = "#cfd6ee"; ctx.font = "14px system-ui";
-      ctx.fillText("Press FIRE / Enter / ▶ to continue", W / 2, 248);
+      ctx.fillText("Press FIRE / Enter / ▶ to continue", W / 2, 500);
     }
   }
   ctx.textBaseline = "alphabetic";
@@ -3601,9 +4151,11 @@ main();
   // Tap on canvas also skips the title, and handles tap/swipe for high-score initials entry.
   function toCanvas(e) {
     const r = canvas.getBoundingClientRect();
+    // Map from CSS pixels to logical world coords (960×540), regardless of
+    // backing-store resolution.
     return {
-      x: (e.clientX - r.left) * (canvas.width / r.width),
-      y: (e.clientY - r.top) * (canvas.height / r.height),
+      x: (e.clientX - r.left) * (W / r.width),
+      y: (e.clientY - r.top) * (H / r.height),
     };
   }
   let tapStart = null;
@@ -3643,14 +4195,33 @@ main();
         cycleCheatLetter(tapStart.pos, tapStart.chevron);
       }
       e.preventDefault();
-    } else if (state.paused) {
-      // Pause menu: click the CHEAT CODE button to open the entry boxes.
+    } else if (state.paused && state.audioMenu) {
       const p = toCanvas(e);
-      const btn = cheatButtonRect();
-      if (p.x >= btn.x && p.x <= btn.x + btn.w && p.y >= btn.y && p.y <= btn.y + btn.h) {
-        openCheatEntry();
-        e.preventDefault();
+      const rows = audioMenuRects();
+      const am = state.audioMenu;
+      let consumed = false;
+      const within = (r, q) => q.x >= r.x && q.x <= r.x + r.w && q.y >= r.y && q.y <= r.y + r.h;
+      for (let i = 0; i < rows.length; i++) {
+        const r = rows[i];
+        if (within(r.minus, p)) { am.focus = i; nudgeVolume(r.kind, -1); consumed = true; break; }
+        if (within(r.plus,  p)) { am.focus = i; nudgeVolume(r.kind, +1); consumed = true; break; }
+        if (within({ x: r.label.x, y: r.y, w: r.plus.x + r.plus.w - r.label.x, h: r.h }, p)) {
+          am.focus = i; consumed = true; break;
+        }
       }
+      // Tapping the AUDIO button again closes the submenu.
+      if (!consumed) {
+        const btn = audioButtonRect();
+        if (within(btn, p)) { closeAudioMenu(); consumed = true; }
+      }
+      if (consumed) e.preventDefault();
+    } else if (state.paused) {
+      // Pause menu: click CHEAT CODE to open entry boxes; click AUDIO to open submenu.
+      const p = toCanvas(e);
+      const btns = pauseButtonRects();
+      const within = (r) => p.x >= r.x && p.x <= r.x + r.w && p.y >= r.y && p.y <= r.y + r.h;
+      if (within(btns.cheat)) { openCheatEntry(); e.preventDefault(); }
+      else if (within(btns.audio)) { openAudioMenu(); e.preventDefault(); }
     }
   });
   canvas.addEventListener("pointerup", (e) => {

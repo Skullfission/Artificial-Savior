@@ -1,10 +1,21 @@
 body{margin:0;background:#0b1224;color:#e8ecf7;font-family:system-ui,sans-serif}
 .wrap{display:grid;place-items:center;min-height:100vh;gap:8px}
 h1{margin:12px 0 0;font-weight:600;letter-spacing:1px}
-canvas{background:#000;border-radius:12px;box-shadow:0 0 40px #1a2a6c88;max-width:100%;max-height:calc(100vh - 110px);image-rendering:auto}
+canvas{background:#000;border-radius:12px;box-shadow:0 0 40px #1a2a6c88;width:min(96vw,calc((100vh - 130px) * 16 / 9));height:auto;aspect-ratio:16/9;image-rendering:auto;display:block}
 .hint{opacity:.7;font-size:14px;margin:0 0 4px}
 .foot{opacity:.5;font-size:12px;margin:0 0 16px}
 .foot a{color:#9fd1ff}
+#fs-btn{margin:2px 0 0;padding:6px 14px;font:600 13px system-ui;color:#cfe3ff;background:rgba(20,30,60,.6);border:1px solid #5fb8ff77;border-radius:8px;cursor:pointer;letter-spacing:.5px}
+#fs-btn:hover{background:#1a2a6c;border-color:#9fd1ff}
+
+/* Fullscreen mode — canvas fills the viewport, page chrome hides. */
+:fullscreen .wrap{min-height:100vh;gap:0;padding:0}
+:fullscreen h1,:fullscreen .hint,:fullscreen .foot,:fullscreen #fs-btn{display:none}
+:fullscreen canvas{width:100vw;height:100vh;max-width:100vw;max-height:100vh;border-radius:0;box-shadow:none}
+/* WebKit prefix variant for Safari. */
+:-webkit-full-screen .wrap{min-height:100vh;gap:0;padding:0}
+:-webkit-full-screen h1,:-webkit-full-screen .hint,:-webkit-full-screen .foot,:-webkit-full-screen #fs-btn{display:none}
+:-webkit-full-screen canvas{width:100vw;height:100vh;max-width:100vw;max-height:100vh;border-radius:0;box-shadow:none}
 
 #touch{display:none;position:fixed;inset:0;pointer-events:none;z-index:10;font-family:inherit}
 .tc-btn{pointer-events:auto;touch-action:none;background:rgba(20,30,60,.55);color:#cfe3ff;border:2px solid #5fb8ff77;border-radius:14px;font:600 16px system-ui;user-select:none;-webkit-user-select:none;-webkit-tap-highlight-color:transparent;backdrop-filter:blur(4px)}
@@ -24,5 +35,6 @@ canvas{background:#000;border-radius:12px;box-shadow:0 0 40px #1a2a6c88;max-widt
   .hint{display:none}
   .foot{display:none}
   canvas{max-height:calc(100vh - 40px)}
+  #fs-btn{display:none}
   #touch{display:block}
 }
