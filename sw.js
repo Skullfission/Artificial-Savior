@@ -1,7 +1,7 @@
 // Artificial Savior — offline service worker.
 // Cache-first strategy: all assets are pre-cached on install so the game plays fully offline after first visit.
 
-const CACHE = "artificial-savior-v44";
+const CACHE = "artificial-savior-v45";
 
 const ASSETS = [
   "./",
