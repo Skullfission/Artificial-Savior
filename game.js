@@ -2943,15 +2943,66 @@ function drawScrollingBg(img, t, speedPxSec) {
   }
 }
 
+// Alternating-tile scrolling background. Tiles cycle imgA, imgB (mirrored),
+// imgA, imgB (mirrored)... so the loop seam stays invisible while two distinct
+// pieces of scenery scroll past. Each image is height-fit (cover) independently
+// so they may have different widths and still chain seamlessly.
+function drawScrollingBgPair(imgA, imgB, t, speedPxSec) {
+  const fit = (img) => {
+    const scale = Math.max(W / img.width, H / img.height);
+    return { dw: img.width * scale, dh: img.height * scale, dy: (H - img.height * scale) / 2 };
+  };
+  const A = fit(imgA), B = fit(imgB);
+  const period = A.dw + B.dw;
+  const t01 = ((t * speedPxSec) % period + period) % period;
+  // Walk left-to-right starting from the tile that contains x=0, drawing
+  // alternating A/B pairs until we're past the right edge.
+  let cursor = -t01;
+  // Back up by one full period so the first visible tile isn't clipped on the left.
+  cursor -= period;
+  let parity = 0; // 0 = A, 1 = B (mirrored)
+  while (cursor < W) {
+    if (parity === 0) {
+      if (cursor + A.dw > 0) ctx.drawImage(imgA, cursor, A.dy, A.dw, A.dh);
+      cursor += A.dw;
+    } else {
+      if (cursor + B.dw > 0) {
+        ctx.save();
+        ctx.translate(cursor + B.dw, B.dy);
+        ctx.scale(-1, 1);
+        ctx.drawImage(imgB, 0, 0, B.dw, B.dh);
+        ctx.restore();
+      }
+      cursor += B.dw;
+    }
+    parity ^= 1;
+  }
+}
+
 // L2 electrical-storm backdrop. Heavy purple/teal cloud gradient + drifting
 // lightning bolts that flash the screen, plus rain streaks and a faint glow.
 function renderStormBackground(e, t) {
-  // If the painted LV2 backdrop is loaded, use it as the base layer in place
-  // of the procedural sky gradient. The cloud-lobe glow + rain + lightning
-  // continue to animate over it for live storm activity.
-  const bg = state.sprites && state.sprites.lv2Bg;
-  if (bg && bg.img) {
-    drawScrollingBg(bg.img, t, 28);
+  // If the destroyed-city panels are loaded, alternate them as scrolling
+  // scenery in place of the procedural sky gradient. Falls back to the older
+  // single LV2BG painting, then to a procedural sky. The cloud-lobe glow +
+  // rain + lightning continue to animate over whichever base is drawn so the
+  // storm still feels alive.
+  const cityA = state.sprites && state.sprites.destroyedCity;
+  const cityB = state.sprites && state.sprites.destroyedCity2;
+  const lv2 = state.sprites && state.sprites.lv2Bg;
+  let bg = null;
+  if (cityA && cityA.img && cityB && cityB.img) {
+    drawScrollingBgPair(cityA.img, cityB.img, t, 28);
+    bg = cityA;
+  } else if (cityA && cityA.img) {
+    drawScrollingBg(cityA.img, t, 28);
+    bg = cityA;
+  } else if (cityB && cityB.img) {
+    drawScrollingBg(cityB.img, t, 28);
+    bg = cityB;
+  } else if (lv2 && lv2.img) {
+    drawScrollingBg(lv2.img, t, 28);
+    bg = lv2;
   } else {
     const sky = ctx.createLinearGradient(0, 0, 0, H);
     sky.addColorStop(0,    "#0a0816");
