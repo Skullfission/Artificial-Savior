@@ -560,7 +560,7 @@ const audio = (() => {
   const TRACKS = {
     l1: { src: "audio/Artificial Savior.mp3", el: null, srcNode: null, available: true },
     l2: { src: "audio/AS LVL2.mp3",           el: null, srcNode: null, available: true },
-    l3: { src: "audio/LV3 ending.mp3",        el: null, srcNode: null, available: true }
+    l3: { src: "audio/Inferno (reduced).mp3", el: null, srcNode: null, available: true }
   };
   let activeKey = "l1";
   let muted = false;
