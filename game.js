@@ -103,25 +103,25 @@ const ENEMY_KINDS = {
   },
   orb: {
     sprite: "enemyOrb",
-    hp: 4,
+    hp: 10,
     speedMin: 18, speedMax: 38,
     speedTierBonus: 5,
-    fireCdMin: 1.6, fireCdMax: 3.2,
+    fireCdMin: 0.64, fireCdMax: 1.28,
     scoreReward: 200,
-    hpPerTier: 8,
+    hpPerTier: 20,
     fireCdTierShrink: 0.05,
-    shotConfig: { color: "#5fb8ff", size: 24, speed: 460, damage: 2, life: 2.4, speedTierBonus: 10 }
+    shotConfig: { color: "#5fb8ff", size: 24, speed: 460, damage: 5, life: 2.4, speedTierBonus: 10 }
   },
   tenticle: {
     sprite: "tenticleEnemy",
-    hp: 7,
+    hp: 35,
     speedMin: 60, speedMax: 130,
     speedTierBonus: 10,
-    fireCdMin: 1.2, fireCdMax: 2.4,
+    fireCdMin: 0.24, fireCdMax: 0.48,
     scoreReward: 250,
-    hpPerTier: 11,
+    hpPerTier: 55,
     fireCdTierShrink: 0.06,
-    shotConfig: { color: "#c47bff", size: 16, speed: 420, damage: 2, life: 2.3, speedTierBonus: 12 }
+    shotConfig: { color: "#c47bff", size: 16, speed: 420, damage: 10, life: 2.3, speedTierBonus: 12 }
   }
 };
 
@@ -165,9 +165,9 @@ const LEVELS = [
     bossSpriteScale: 1.0,
     semiBossSprite: "bluebird",
     finalBossSprite: "motherShip",
-    bossHp: BOSS_HP * 2,
-    semiBossHp: Math.round(SEMIBOSS_HP * 1.5),
-    finalBossHp: SEMIBOSS_HP * 3,
+    bossHp: BOSS_HP * 5,
+    semiBossHp: Math.round(SEMIBOSS_HP * 1.5 * 2.5),
+    finalBossHp: SEMIBOSS_HP * 7.5,
     bossLabel: "MINI-BOSS — THE CUBE",
     semiBossLabel: "SEMI-FINAL BOSS — BLUEBIRD",
     finalBossLabel: "FINAL BOSS — MOTHER SHIP",
@@ -176,6 +176,7 @@ const LEVELS = [
     finalBossIncomingText: "!! FINAL BOSS — MOTHER SHIP !!",
     enemyKinds: ["orb"],
     asteroidsAfterMiniBoss: false,
+    bossDifficulty: 2.5,
     planet: { sprite: "planetSprite", palette: ["#c8a8ff", "#5b3aa8", "#1a0a2a"], ringColor: "rgba(190,170,255,0.55)" },
     outroPrompt: "CONTINUE",
     nextLevel: 3,
@@ -192,9 +193,9 @@ const LEVELS = [
     bossSpriteScale: 1.0,
     semiBossSprite: "technoDemon",
     finalBossSprite: "dimensionalBoss",
-    bossHp: Math.round(BOSS_HP * 2.5) + 20000,
-    semiBossHp: Math.round(SEMIBOSS_HP * 1.7) + 20000,
-    finalBossHp: Math.round(FINAL_BOSS_HP * 1.4) + 20000,
+    bossHp: (Math.round(BOSS_HP * 2.5) + 20000) * 5,
+    semiBossHp: (Math.round(SEMIBOSS_HP * 1.7) + 20000) * 5,
+    finalBossHp: (Math.round(FINAL_BOSS_HP * 1.4) + 20000) * 5,
     bossLabel: "MINI-BOSS — TENTICLE SKULL",
     semiBossLabel: "SEMI-FINAL BOSS — TECHNO DEMON",
     finalBossLabel: "FINAL BOSS — DIMENSIONAL HORROR",
@@ -203,6 +204,7 @@ const LEVELS = [
     finalBossIncomingText: "!! FINAL BOSS — DIMENSIONAL HORROR !!",
     enemyKinds: ["tenticle"],
     asteroidsAfterMiniBoss: false,
+    bossDifficulty: 5,
     planet: { sprite: "planetSprite", palette: ["#c8a8ff", "#4a2880", "#150525"], ringColor: "rgba(220,200,255,0.6)" },
     outroPrompt: "MISSION COMPLETE",
     nextLevel: null,
@@ -211,6 +213,12 @@ const LEVELS = [
 ];
 
 function getLevelByIdx(idx) { return LEVELS[Math.max(0, Math.min(LEVELS.length - 1, idx))]; }
+
+// Per-level boss difficulty multiplier — scales boss shot damage and fire rate.
+// L1 = 1×, L2 = 2.5×, L3 = 5× (matches HP scaling in LEVELS config).
+function bossMult() {
+  return (state && state.level && state.level.bossDifficulty) || 1;
+}
 
 // ---------- Asset loader ----------
 
@@ -1450,12 +1458,13 @@ function bossFire(e) {
   const dx = p.x - e.x, dy = p.y - e.y;
   const ang = Math.atan2(dy, dx);
   const speed = 420;
+  const mult = bossMult();
   for (const off of [-0.22, 0, 0.22]) {
     const a = ang + off;
     state.bullets.push({
       x: e.x - e.size * 0.35, y: e.y,
       vx: Math.cos(a) * speed, vy: Math.sin(a) * speed,
-      size: 14, damage: 2,
+      size: 14, damage: 2 * mult,
       color: "#ff7a3a",
       img: null,
       life: 2.8,
@@ -1631,12 +1640,13 @@ const triggerVictory = triggerLevelOutro;
 function bossBurst(e) {
   // Radial burst — punishes staying still.
   const n = 14;
+  const mult = bossMult();
   for (let i = 0; i < n; i++) {
     const a = (i / n) * Math.PI * 2 + Math.random() * 0.05;
     state.bullets.push({
       x: e.x, y: e.y,
       vx: Math.cos(a) * 300, vy: Math.sin(a) * 300,
-      size: 12, damage: 2,
+      size: 12, damage: 2 * mult,
       color: "#ff3a7a",
       img: null,
       life: 2.5,
@@ -1652,12 +1662,13 @@ function semiBossFire(e) {
   const dx = p.x - e.x, dy = p.y - e.y;
   const ang = Math.atan2(dy, dx);
   const speed = 480;
+  const mult = bossMult();
   for (const off of [-0.36, -0.18, 0, 0.18, 0.36]) {
     const a = ang + off;
     state.bullets.push({
       x: e.x - e.size * 0.35, y: e.y + (Math.random() - 0.5) * 24,
       vx: Math.cos(a) * speed, vy: Math.sin(a) * speed,
-      size: 16, damage: 3,
+      size: 16, damage: 3 * mult,
       color: "#ff4040",
       img: null,
       life: 3.0,
@@ -1671,12 +1682,13 @@ function semiBossBurst(e) {
   // Dense rotating radial barrage.
   const n = 24;
   const spin = e.t * 0.4;
+  const mult = bossMult();
   for (let i = 0; i < n; i++) {
     const a = (i / n) * Math.PI * 2 + spin;
     state.bullets.push({
       x: e.x, y: e.y,
       vx: Math.cos(a) * 340, vy: Math.sin(a) * 340,
-      size: 14, damage: 2,
+      size: 14, damage: 2 * mult,
       color: "#ff2070",
       img: null,
       life: 2.8,
@@ -1692,12 +1704,13 @@ function finalBossFire(e) {
   const dx = p.x - e.x, dy = p.y - e.y;
   const ang = Math.atan2(dy, dx);
   const speed = 560;
+  const mult = bossMult();
   for (const off of [-0.48, -0.32, -0.16, 0, 0.16, 0.32, 0.48]) {
     const a = ang + off;
     state.bullets.push({
       x: e.x - e.size * 0.35, y: e.y + (Math.random() - 0.5) * 18,
       vx: Math.cos(a) * speed, vy: Math.sin(a) * speed,
-      size: 16, damage: 3,
+      size: 16, damage: 3 * mult,
       color: "#ffb347",
       img: null,
       life: 3.2,
@@ -1709,7 +1722,7 @@ function finalBossFire(e) {
     state.bullets.push({
       x: e.x - e.size * 0.2, y: e.y + py,
       vx: -720, vy: 0,
-      size: 14, damage: 3,
+      size: 14, damage: 3 * mult,
       color: "#ffffff",
       img: null,
       life: 2.5,
@@ -1723,20 +1736,21 @@ function finalBossBurst(e) {
   // Two counter-rotating rings — dense, punishing radial pressure.
   const n = 20;
   const spin = e.t * 0.5;
+  const mult = bossMult();
   for (let i = 0; i < n; i++) {
     const a1 = (i / n) * Math.PI * 2 + spin;
     const a2 = (i / n) * Math.PI * 2 - spin * 1.2;
     state.bullets.push({
       x: e.x, y: e.y,
       vx: Math.cos(a1) * 380, vy: Math.sin(a1) * 380,
-      size: 14, damage: 2,
+      size: 14, damage: 2 * mult,
       color: "#ff9020",
       img: null, life: 3.0, friendly: false
     });
     state.bullets.push({
       x: e.x, y: e.y,
       vx: Math.cos(a2) * 260, vy: Math.sin(a2) * 260,
-      size: 12, damage: 2,
+      size: 12, damage: 2 * mult,
       color: "#b040ff",
       img: null, life: 3.2, friendly: false
     });
@@ -2025,7 +2039,7 @@ function motherShipFireBeam(e, origin) {
     vy: Math.sin(ang) * MOTHERSHIP_LASER_SPEED,
     speed: MOTHERSHIP_LASER_SPEED,
     turnRate: MOTHERSHIP_LASER_TURN_RATE,
-    damage: MOTHERSHIP_LASER_DAMAGE,
+    damage: MOTHERSHIP_LASER_DAMAGE * bossMult(),
     life: MOTHERSHIP_LASER_LIFE,
     radius: MOTHERSHIP_LASER_RADIUS,
     trail: []
@@ -2054,7 +2068,7 @@ function motherShipFireShockwave(e) {
     maxR: MOTHERSHIP_SHOCKWAVE_MAX_R,
     speed: MOTHERSHIP_SHOCKWAVE_SPEED,
     thickness: MOTHERSHIP_SHOCKWAVE_THICKNESS,
-    damage: MOTHERSHIP_SHOCKWAVE_DAMAGE,
+    damage: MOTHERSHIP_SHOCKWAVE_DAMAGE * bossMult(),
     hit: false
   };
   audio.playSfx("explosion");
@@ -2408,11 +2422,12 @@ function update(dt) {
         e.y = Math.max(e.size / 2, Math.min(H - e.size / 2, e.y));
       }
       if (isMs) {
+        const msMult = bossMult();
         // Homing eye-laser bursts (4 beams: 2 per eye, gap-spaced).
         e.motherShipBurstT -= dt;
         if (e.motherShipBurstT <= 0 && !e.entering) {
           motherShipFireBurst(e);
-          e.motherShipBurstT = MOTHERSHIP_LASER_INTERVAL;
+          e.motherShipBurstT = MOTHERSHIP_LASER_INTERVAL / msMult;
         }
         if (e.motherShipBurstQueue > 0) {
           e.motherShipBurstGapT -= dt;
@@ -2427,28 +2442,31 @@ function update(dt) {
         e.motherShipShockT -= dt;
         if (e.motherShipShockT <= 0 && !e.entering && !state.bossShockwave) {
           motherShipFireShockwave(e);
-          e.motherShipShockT = MOTHERSHIP_SHOCKWAVE_INTERVAL;
+          e.motherShipShockT = MOTHERSHIP_SHOCKWAVE_INTERVAL / msMult;
         }
       } else {
         e.fireCd -= dt;
         e.burstCd -= dt;
+        const bMult = bossMult();
         if (!e.entering && e.fireCd <= 0) {
           if (finalB) finalBossFire(e);
           else if (semi) semiBossFire(e);
           else bossFire(e);
           // Fire rate intensifies as HP drops.
           const rage = 1 - Math.max(0, e.hp) / e.maxHp;
-          e.fireCd = finalB ? Math.max(0.12, 0.5 - rage * 0.4)
-                   : semi   ? Math.max(0.18, 0.7 - rage * 0.5)
-                            : Math.max(0.25, 0.9 - rage * 0.6);
+          const baseCd = finalB ? Math.max(0.12, 0.5 - rage * 0.4)
+                       : semi   ? Math.max(0.18, 0.7 - rage * 0.5)
+                                : Math.max(0.25, 0.9 - rage * 0.6);
+          e.fireCd = baseCd / bMult;
         }
         if (!e.entering && e.burstCd <= 0) {
           if (finalB) finalBossBurst(e);
           else if (semi) semiBossBurst(e);
           else bossBurst(e);
-          e.burstCd = finalB ? (1.6 - (1 - e.hp / e.maxHp) * 1.0)
-                    : semi   ? (2.4 - (1 - e.hp / e.maxHp) * 1.2)
-                             : (3.4 - (1 - e.hp / e.maxHp) * 1.4);
+          const baseBurst = finalB ? (1.6 - (1 - e.hp / e.maxHp) * 1.0)
+                          : semi   ? (2.4 - (1 - e.hp / e.maxHp) * 1.2)
+                                   : (3.4 - (1 - e.hp / e.maxHp) * 1.4);
+          e.burstCd = baseBurst / bMult;
         }
         // Dimensional Horror combo: layer Mother Ship homing beams + shockwaves
         // on top of Harbinger's chase + spread + ring patterns.
@@ -2456,7 +2474,7 @@ function update(dt) {
           e.motherShipBurstT -= dt;
           if (e.motherShipBurstT <= 0 && !e.entering) {
             motherShipFireBurst(e);
-            e.motherShipBurstT = MOTHERSHIP_LASER_INTERVAL * 1.4;
+            e.motherShipBurstT = (MOTHERSHIP_LASER_INTERVAL * 1.4) / bMult;
           }
           if (e.motherShipBurstQueue > 0) {
             e.motherShipBurstGapT -= dt;
@@ -2470,7 +2488,7 @@ function update(dt) {
           e.motherShipShockT -= dt;
           if (e.motherShipShockT <= 0 && !e.entering && !state.bossShockwave) {
             motherShipFireShockwave(e);
-            e.motherShipShockT = MOTHERSHIP_SHOCKWAVE_INTERVAL * 1.1;
+            e.motherShipShockT = (MOTHERSHIP_SHOCKWAVE_INTERVAL * 1.1) / bMult;
           }
         }
       }
