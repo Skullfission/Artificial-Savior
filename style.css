@@ -30,27 +30,22 @@ canvas{background:#000;border-radius:12px;box-shadow:0 0 40px #1a2a6c88;width:mi
 
 @media (pointer:coarse){
   html,body{overflow:hidden;height:100%;width:100%;background:#000;position:fixed;inset:0}
-  .wrap{min-height:100vh;min-height:100dvh;width:100vw;padding:0;gap:0;place-items:stretch}
+  .wrap{min-height:100vh;min-height:100dvh;width:100vw;padding:0;gap:0;place-items:center}
   h1{display:none}
   .hint{display:none}
   .foot{display:none}
   canvas{
     position:fixed;
-    left:0;top:0;
-    width:100vw;height:100vh;
-    aspect-ratio:auto;border-radius:0;box-shadow:none;display:block
+    left:50%;top:50%;
+    transform:translate(-50%,-50%);
+    /* Fit the 16:9 logical canvas inside the viewport without stretching.
+       JS sets explicit pixel width/height so this also works in portrait. */
+    aspect-ratio:16/9;border-radius:0;box-shadow:none;display:block;
+    max-width:100vw;max-height:100vh
   }
   #fs-btn{display:none}
   #touch{display:block;padding:env(safe-area-inset-top,0px) env(safe-area-inset-right,0px) env(safe-area-inset-bottom,0px) env(safe-area-inset-left,0px);box-sizing:border-box}
 }
 
-/* Force landscape on touch devices: portrait shows a rotate prompt. */
+/* Rotate-lock element retained in DOM but never shown — game supports both orientations. */
 #rotate-lock{display:none}
-@media (pointer:coarse) and (orientation:portrait){
-  #rotate-lock{display:flex;position:fixed;inset:0;z-index:1000;background:#0b1224;color:#e8ecf7;align-items:center;justify-content:center;flex-direction:column;gap:18px;text-align:center;padding:24px;font-family:system-ui,sans-serif}
-  #rotate-lock .icon{font-size:64px;animation:rot 1.6s ease-in-out infinite}
-  #rotate-lock h2{margin:0;font-size:22px;letter-spacing:1px}
-  #rotate-lock p{margin:0;opacity:.75;font-size:14px;max-width:360px;line-height:1.4}
-  #touch,canvas{visibility:hidden}
-}
-@keyframes rot{0%,100%{transform:rotate(-90deg)}50%{transform:rotate(0)}}

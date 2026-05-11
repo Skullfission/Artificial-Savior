@@ -334,10 +334,11 @@ addEventListener("keydown", e => {
     for (const code of Object.keys(CHEAT_CODES)) {
       if (state.cheatBuffer.endsWith(code)) {
         state.activeCheat = code;
+        state.activeCheats[code] = true;
         state.cheatBanner = 2.5;
         audio.playSfx && audio.playSfx("laser");
         // Apply immediately so the first run benefits (reset() also re-applies on Retry).
-        if (state.player) applyCheat(state.player);
+        if (state.player) applyCheat(state.player, code);
         break;
       }
     }
@@ -529,9 +530,10 @@ function submitCheatEntry() {
   const code = en.letters.join("");
   if (CHEAT_CODES[code]) {
     state.activeCheat = code;
+    state.activeCheats[code] = true;
     state.cheatBanner = 2.5;
     audio.playSfx && audio.playSfx("laser");
-    if (state.player) applyCheat(state.player);
+    if (state.player) applyCheat(state.player, code);
   }
   // Silent on miss — leave boxes intact so a single bad swipe doesn't wipe progress.
 }
@@ -1169,6 +1171,7 @@ const state = {
   audioMenu: null,
   cheatBuffer: "",
   activeCheat: null,
+  activeCheats: {},
   godMode: false,
   cheatBanner: 0,
   levelIdx: 0,
@@ -1179,7 +1182,9 @@ const state = {
 // Secret cheat codes (entered on the title screen; not surfaced to the UI).
 const CHEAT_CODES = {
   EDGE: "MK2 ship at level 20 with all projectiles",
-  MICO: "God mode — invulnerable but progress normally"
+  MICO: "God mode — invulnerable but progress normally",
+  NUKE: "Unlimited nukes",
+  BEAM: "Unlimited laser (no energy drain)"
 };
 
 const TITLE_DURATION = 20;
@@ -1312,10 +1317,14 @@ function advanceLevel() {
   if (audio && audio.crossfadeTo) audio.crossfadeTo(next.music, 1.5);
 }
 
-function applyCheat(p) {
-  if (!state.activeCheat) return;
+function applyCheat(p, code) {
+  // When called without an explicit code, re-apply every armed cheat (used by reset()).
+  if (!code) {
+    for (const c of Object.keys(state.activeCheats || {})) applyCheat(p, c);
+    return;
+  }
   const unlockAll = () => { p.unlocked = { small: true, large: true, laser: true, missle: true }; };
-  switch (state.activeCheat) {
+  switch (code) {
     case "EDGE": {
       // Jump to MK 20 with cumulative stat gains equivalent to 19 levelUps.
       const levels = 19;
@@ -1345,6 +1354,22 @@ function applyCheat(p) {
       resolvePlayerSprite(p);
       state.upgradeBanner = 2.5;
       state.upgradeText = "GOD MODE ENGAGED";
+      break;
+    }
+    case "NUKE": {
+      p.unlocked.missle = true;
+      p.nukeAmmo = NUKE_MAX;
+      state.upgradeBanner = 2.5;
+      state.upgradeText = "NUKES UNLIMITED";
+      break;
+    }
+    case "BEAM": {
+      p.unlocked.laser = true;
+      p.weapon = "laser";
+      p._laserOut = false;
+      p.energy = p.maxEnergy;
+      state.upgradeBanner = 2.5;
+      state.upgradeText = "BEAM UNLIMITED";
       break;
     }
   }
@@ -1782,11 +1807,12 @@ function fireWeapon(p, dt) {
   if (nukeHeld && !p.nukeBtnLatch) {
     p.nukeBtnLatch = true;
     const godActiveNow = state.godMode || (p.godPickupT > 0);
-    if (p.unlocked.missle && (godActiveNow || (p.nukeAmmo || 0) > 0)) {
-      // GOD MODE bypasses ammo consumption entirely.
-      if (!godActiveNow) p.nukeAmmo -= 1;
+    const nukeCheat = !!state.activeCheats.NUKE;
+    if (p.unlocked.missle && (godActiveNow || nukeCheat || (p.nukeAmmo || 0) > 0)) {
+      // GOD MODE / NUKE cheat bypass ammo consumption entirely.
+      if (!godActiveNow && !nukeCheat) p.nukeAmmo -= 1;
       detonateNuke(p, WEAPONS.missle);
-    } else if (!state._nukeEmptyToast || state.toast == null) {
+    }else if (!state._nukeEmptyToast || state.toast == null) {
       showToast(p.unlocked.missle ? "NO NUKES" : "NUKE LOCKED", "#ff6b6b");
       state._nukeEmptyToast = true;
     }
@@ -1802,9 +1828,10 @@ function fireWeapon(p, dt) {
   const wantFire = keys.has(" ");
 
   // Laser drains energy while held; regenerates otherwise. God Mode (permanent
-  // MICO cheat or active GOD MODE pickup timer) bypasses drain entirely.
+  // MICO cheat or active GOD MODE pickup timer) and the BEAM cheat bypass drain entirely.
   const godActive = state.godMode || (p.godPickupT > 0);
-  if (isLaser && wantFire && p.energy > 0 && !godActive) {
+  const beamCheat = !!state.activeCheats.BEAM;
+  if (isLaser && wantFire && p.energy > 0 && !godActive && !beamCheat) {
     p.energy = Math.max(0, p.energy - LASER_DRAIN * dt);
     if (p.energy <= 0) autoSwitchFromLaser(p);
   } else {
@@ -1812,14 +1839,14 @@ function fireWeapon(p, dt) {
   }
 
   if (!wantFire || p.cd > 0) return;
-  if (isLaser && !godActive) {
+  if (isLaser && !godActive && !beamCheat) {
     if (p._laserOut) {
       // Currently locked out — wait for the bar to refill past the min threshold.
       if (p.energy < LASER_MIN_ENERGY) return;
       p._laserOut = false;
     }
     if (p.energy <= 0) { p._laserOut = true; return; }
-  } else if (godActive) {
+  } else if (godActive || beamCheat) {
     p._laserOut = false;
   }
 
@@ -2815,16 +2842,17 @@ function renderTitle() {
   ctx.fillText("WASD / Arrows to move   ·   Space to fire   ·   1-4 weapons   ·   P pause   ·   X mute", tx, H - 46);
 
   // Brief cheat confirmation flash (never reveals the code list).
+  const armedList = Object.keys(state.activeCheats || {});
   if (state.cheatBanner > 0 && state.activeCheat) {
     const a = Math.min(1, state.cheatBanner / 0.5);
     ctx.globalAlpha = a;
     ctx.fillStyle = "#ffd27a"; ctx.font = "bold 18px system-ui";
     ctx.fillText(`◆ ${state.activeCheat} ARMED ◆`, tx, H - 110);
     ctx.globalAlpha = 1;
-  } else if (state.activeCheat) {
+  } else if (armedList.length > 0) {
     // Tiny corner indicator once armed, non-revealing.
     ctx.fillStyle = "#ffd27a88"; ctx.font = "11px system-ui"; ctx.textAlign = "right";
-    ctx.fillText(`◆ ${state.activeCheat}`, W - 12, H - 12);
+    ctx.fillText(`◆ ${armedList.join(" · ")}`, W - 12, H - 12);
     ctx.textAlign = "center";
   }
 
@@ -3556,7 +3584,8 @@ function render() {
   // Nuke charges indicator (right-side of weapon line).
   if (p.unlocked.missle || (p.nukeAmmo || 0) > 0) {
     ctx.fillStyle = "#ffb26b"; ctx.font = "bold 12px system-ui"; ctx.textAlign = "right";
-    ctx.fillText(`NUKE ${p.nukeAmmo || 0}/${NUKE_MAX}`, 260, 50);
+    const nukeText = state.activeCheats.NUKE ? "NUKE ∞" : `NUKE ${p.nukeAmmo || 0}/${NUKE_MAX}`;
+    ctx.fillText(nukeText, 260, 50);
     ctx.textAlign = "left";
   }
 
@@ -3611,12 +3640,13 @@ function render() {
   ctx.fillStyle = "#cfd6ee"; ctx.font = "12px system-ui"; ctx.textAlign = "right";
   ctx.fillText(`MK ${p.tier}  →  MK ${p.tier + 1} @ ${p.nextUpgrade}`, W - 20, 44);
 
-  // Active-cheat HUD indicator (small, non-revealing beyond the active code).
-  if (state.activeCheat) {
+  // Active-cheat HUD indicator (small, non-revealing beyond the active codes).
+  const armedCheats = Object.keys(state.activeCheats || {});
+  if (armedCheats.length > 0) {
     ctx.textAlign = "left";
     ctx.font = "bold 11px system-ui";
     ctx.fillStyle = state.godMode ? "#ffd27a" : "#ff9ad0";
-    ctx.fillText(`◆ ${state.activeCheat}${state.godMode ? "  GOD" : ""}`, 20, 66);
+    ctx.fillText(`◆ ${armedCheats.join(" · ")}${state.godMode ? "  GOD" : ""}`, 20, 66);
   }
 
   // Audio indicator
@@ -4162,14 +4192,17 @@ main();
   stick.addEventListener("pointerup", endStick);
   stick.addEventListener("pointercancel", endStick);
 
-  // Fire (hold to auto-fire). While the pause-menu cheat entry is open, FIRE
-  // doubles as the ENTER/submit button so the on-canvas ENTER affordance can
-  // be removed for mobile.
+  // Fire (hold to auto-fire). While paused, FIRE doubles as ENTER:
+  //   - cheat-entry open → submit code
+  //   - top-level pause menu → activate the currently-selected option
   fire.addEventListener("pointerdown", e => {
     fire.setPointerCapture(e.pointerId);
     audio.unlockAndPlay();
     if (state.paused && state.cheatEntry) {
       submitCheatEntry();
+    } else if (state.paused && !state.audioMenu) {
+      if (state.pauseSel === "audio") openAudioMenu();
+      else openCheatEntry();
     } else {
       keys.add(" ");
     }
