@@ -354,6 +354,154 @@ addEventListener("keydown", e => {
 addEventListener("keyup", e => keys.delete(e.key.toLowerCase()));
 addEventListener("pointerdown", () => audio.unlockAndPlay());
 
+// ---------- Gamepad input (standard mapping) ----------
+// Additive layer on top of keyboard + touch: each frame we poll any connected
+// gamepad and translate its inputs into the same `keys` Set / synthetic
+// KeyboardEvent stream the rest of the game already understands. Keyboard and
+// on-screen touch controls remain fully functional alongside this.
+//
+// Mapping (Standard Gamepad layout):
+//   Left stick / D-pad   -> Arrow keys (continuous, with deadzone)
+//   A (0) / RT (7)       -> Space (fire, continuous). A also submits Enter
+//                            on the initials screen so the player can sign in.
+//   B (1)                -> Backspace in initials entry, R on game-over,
+//                            otherwise Escape (close pause/cheat/audio menus)
+//   X (2)                -> "4" (nuke)
+//   Y (3)                -> Enter in menus / cycles weapon forward in play
+//   LB (4)               -> cycle weapon backward
+//   RB (5)               -> cycle weapon forward
+//   LT (6)               -> "3" (laser shortcut)
+//   Select/Back (8)      -> "x" (mute toggle)
+//   Start (9)            -> "p" (pause toggle)
+const gamepadState = {
+  prevButtons: new Array(20).fill(false),
+  prevAxisDirs: { left: false, right: false, up: false, down: false },
+  heldGpKeys: new Set(),
+};
+
+addEventListener("gamepadconnected", e => {
+  // Surface controller name so users can confirm detection from devtools.
+  console.log("Gamepad connected:", e.gamepad && e.gamepad.id);
+  audio.unlockAndPlay && audio.unlockAndPlay();
+});
+
+function dispatchGpKey(type, key) {
+  window.dispatchEvent(new KeyboardEvent(type, { key, bubbles: true }));
+}
+
+function gpKeyDown(key) {
+  if (gamepadState.heldGpKeys.has(key)) return;
+  gamepadState.heldGpKeys.add(key);
+  dispatchGpKey("keydown", key);
+}
+
+function gpKeyUp(key) {
+  if (!gamepadState.heldGpKeys.has(key)) return;
+  gamepadState.heldGpKeys.delete(key);
+  dispatchGpKey("keyup", key);
+}
+
+// One-shot tap: synthesize a keydown immediately and a keyup shortly after so
+// `keys` doesn't latch the key forever (matches the touch controls' 80ms tap).
+function gpTapKey(key) {
+  dispatchGpKey("keydown", key);
+  setTimeout(() => dispatchGpKey("keyup", key), 80);
+}
+
+// Tap a raw `keys` Set entry without dispatching events. Used for keys that
+// are only consumed by polling (e.g. weapon-slot digits, nuke "4", retry "r").
+function gpTapRawKey(k) {
+  keys.add(k);
+  setTimeout(() => keys.delete(k), 100);
+}
+
+function gpCycleWeapon(dir) {
+  const p = state.player;
+  if (!p || !p.unlocked || state.phase !== "play" || state.paused || state.gameOver) return;
+  const list = WEAPON_ORDER.filter(k => k !== "missle" && p.unlocked[k]);
+  if (list.length === 0) return;
+  let idx = list.indexOf(p.weapon);
+  if (idx < 0) idx = 0;
+  idx = (idx + dir + list.length) % list.length;
+  p.weapon = list[idx];
+}
+
+function pollGamepad() {
+  const pads = (navigator.getGamepads && navigator.getGamepads()) || [];
+  let pad = null;
+  for (const p of pads) {
+    if (p && p.connected) { pad = p; break; }
+  }
+  if (!pad) {
+    // Pad disconnected: release anything we were holding via gamepad.
+    for (const k of [...gamepadState.heldGpKeys]) gpKeyUp(k);
+    gamepadState.prevButtons.fill(false);
+    gamepadState.prevAxisDirs = { left: false, right: false, up: false, down: false };
+    return;
+  }
+
+  const btn = i => !!(pad.buttons[i] && pad.buttons[i].pressed);
+  const prev = gamepadState.prevButtons;
+  const edge = (i, fn) => { if (btn(i) && !prev[i]) fn(); };
+
+  // Movement: left stick + d-pad -> arrow keys (continuous).
+  const dz = 0.35;
+  const sx = pad.axes[0] || 0;
+  const sy = pad.axes[1] || 0;
+  const left  = sx < -dz || btn(14);
+  const right = sx >  dz || btn(15);
+  const up    = sy < -dz || btn(12);
+  const down  = sy >  dz || btn(13);
+  const pa = gamepadState.prevAxisDirs;
+  if (left  !== pa.left)  (left  ? gpKeyDown("ArrowLeft")  : gpKeyUp("ArrowLeft"));
+  if (right !== pa.right) (right ? gpKeyDown("ArrowRight") : gpKeyUp("ArrowRight"));
+  if (up    !== pa.up)    (up    ? gpKeyDown("ArrowUp")    : gpKeyUp("ArrowUp"));
+  if (down  !== pa.down)  (down  ? gpKeyDown("ArrowDown")  : gpKeyUp("ArrowDown"));
+  gamepadState.prevAxisDirs = { left, right, up, down };
+
+  // Fire: A (0) or RT (7) held -> Space held.
+  const fire = btn(0) || btn(7);
+  const wasFire = prev[0] || prev[7];
+  if (fire !== wasFire) (fire ? gpKeyDown(" ") : gpKeyUp(" "));
+  // A press during initials entry also submits via Enter so high-score sign-in works.
+  if (btn(0) && !prev[0] && state.entry && !state.entry.submitted) {
+    gpTapKey("Enter");
+  }
+
+  // B: context-sensitive cancel/back/retry.
+  edge(1, () => {
+    if (state.entry && !state.entry.submitted) gpTapKey("Backspace");
+    else if (state.gameOver) gpTapRawKey("r");
+    else gpTapKey("Escape");
+  });
+
+  // X: nuke ("4").
+  edge(2, () => gpTapRawKey("4"));
+
+  // Y: confirm in menus / cycle weapon forward in active play.
+  edge(3, () => {
+    if (state.paused || (state.entry && !state.entry.submitted) ||
+        state.phase === "title" || state.gameOver) {
+      gpTapKey("Enter");
+    } else {
+      gpCycleWeapon(+1);
+    }
+  });
+
+  // Shoulder buttons cycle weapons.
+  edge(4, () => gpCycleWeapon(-1));
+  edge(5, () => gpCycleWeapon(+1));
+
+  // LT: laser shortcut.
+  edge(6, () => gpTapRawKey("3"));
+
+  // Select/Back: mute; Start: pause.
+  edge(8, () => gpTapKey("x"));
+  edge(9, () => gpTapKey("p"));
+
+  for (let i = 0; i < 20; i++) prev[i] = btn(i);
+}
+
 function togglePause() {
   // Pausing is only meaningful during active gameplay.
   if (state.phase !== "play" || state.gameOver) return;
@@ -4124,6 +4272,8 @@ let last = performance.now();
 function frame(now) {
   const dt = Math.min(0.05, (now - last) / 1000);
   last = now;
+  // Poll every frame (even while paused) so Start can unpause and menu nav works.
+  pollGamepad();
   if (!state.paused) update(dt);
   render();
   requestAnimationFrame(frame);
