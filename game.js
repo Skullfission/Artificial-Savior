@@ -362,12 +362,14 @@ addEventListener("pointerdown", () => audio.unlockAndPlay());
 //
 // Mapping (Standard Gamepad layout):
 //   Left stick / D-pad   -> Arrow keys (continuous, with deadzone)
-//   A (0) / RT (7)       -> Space (fire, continuous). A also submits Enter
-//                            on the initials screen so the player can sign in.
+//   X (2) / RT (7)       -> Space (fire, continuous). X also confirms (Enter)
+//                            when a menu / initials screen / title / game-over
+//                            is up so the player can sign in or advance UI.
+//   A (0)                -> Enter (confirm) in menus / initials / title /
+//                            game-over. No effect during active play.
 //   B (1)                -> Backspace in initials entry, R on game-over,
 //                            otherwise Escape (close pause/cheat/audio menus)
-//   X (2)                -> "4" (nuke)
-//   Y (3)                -> Enter in menus / cycles weapon forward in play
+//   Y (3)                -> "4" (nuke)
 //   LB (4)               -> cycle weapon backward
 //   RB (5)               -> cycle weapon forward
 //   LT (6)               -> "3" (laser shortcut)
@@ -459,14 +461,18 @@ function pollGamepad() {
   if (down  !== pa.down)  (down  ? gpKeyDown("ArrowDown")  : gpKeyUp("ArrowDown"));
   gamepadState.prevAxisDirs = { left, right, up, down };
 
-  // Fire: A (0) or RT (7) held -> Space held.
-  const fire = btn(0) || btn(7);
-  const wasFire = prev[0] || prev[7];
+  // Fire: X (2) or RT (7) held -> Space held.
+  const fire = btn(2) || btn(7);
+  const wasFire = prev[2] || prev[7];
   if (fire !== wasFire) (fire ? gpKeyDown(" ") : gpKeyUp(" "));
-  // A press during initials entry also submits via Enter so high-score sign-in works.
-  if (btn(0) && !prev[0] && state.entry && !state.entry.submitted) {
-    gpTapKey("Enter");
-  }
+
+  // Confirm: A (0) and X (2) both submit Enter while a menu / initials /
+  // title / game-over screen is up. X still fires during play (handled above);
+  // A is purely a confirm button.
+  const inMenu = () => state.paused || (state.entry && !state.entry.submitted) ||
+                       state.phase === "title" || state.gameOver;
+  edge(0, () => { if (inMenu()) gpTapKey("Enter"); });
+  edge(2, () => { if (inMenu()) gpTapKey("Enter"); });
 
   // B: context-sensitive cancel/back/retry.
   edge(1, () => {
@@ -475,18 +481,8 @@ function pollGamepad() {
     else gpTapKey("Escape");
   });
 
-  // X: nuke ("4").
-  edge(2, () => gpTapRawKey("4"));
-
-  // Y: confirm in menus / cycle weapon forward in active play.
-  edge(3, () => {
-    if (state.paused || (state.entry && !state.entry.submitted) ||
-        state.phase === "title" || state.gameOver) {
-      gpTapKey("Enter");
-    } else {
-      gpCycleWeapon(+1);
-    }
-  });
+  // Y: nuke ("4").
+  edge(3, () => gpTapRawKey("4"));
 
   // Shoulder buttons cycle weapons.
   edge(4, () => gpCycleWeapon(-1));
